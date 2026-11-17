@@ -6,15 +6,21 @@
 all-features = true
 
 [advisories]
+# Each waiver below needs the repo owner's approval (asked in the PR that added it). Each says
+# why it does not reach a shipped secret, who removes it, and when.
 ignore = [
-    # crypto-bigint 0.5 timing variability, via p256 0.13. Shipped binaries use p256 only to
-    # verify signatures with public keys (bogo-verify, bogo-attest); only the test stand-in
-    # signs. The fix needs p256 0.14, a separate upgrade of the verification path.
-    { id = "RUSTSEC-2026-0387", reason = "p256 only verifies public signatures in shipped code" },
-    # chrono is unmaintained; it reaches us only through rmcp and schemars, and rmcp is pinned
-    # exactly (Cargo.toml). Drop this when an rmcp upgrade no longer needs chrono.
+    # crypto-bigint 0.5 timing variability, via elliptic-curve 0.13. The paths in shipped code:
+    # p256 (bogo-verify, bogo-attest) and p384 (bogo-attest) only verify signatures and parse
+    # public keys; HPKE (bogo-e2e) is pulled in with p256 compiled but uses only the X25519 KEM
+    # (x25519-dalek, no crypto-bigint). Only the test stand-in (bogo-standin) signs with p256.
+    # Owner: bogo maintainers. Remove when p256/p384 0.14 (crypto-bigint >= 0.7.6) is adopted.
+    { id = "RUSTSEC-2026-0387", reason = "p256/p384 verify public signatures only; HPKE is X25519" },
+    # chrono is unmaintained (no fixed release); it reaches us only through rmcp and schemars,
+    # and rmcp is pinned exactly (Cargo.toml). Owner: bogo maintainers. Remove at the next rmcp
+    # upgrade that no longer depends on chrono.
     { id = "RUSTSEC-2026-0543", reason = "only via the exactly pinned rmcp" },
-    # The next two are in the relay crates, which T21 is replacing. T21 removes them.
+    # The next two are in the relay crates, which T21 is replacing. Owner: T21. Remove when the
+    # relay no longer depends on rusqlite < 0.41 or on axum-server's rustls-pemfile.
     # Bundled SQLite opening a database a less trusted party wrote; the relay opens only its own.
     { id = "RUSTSEC-2026-0459", reason = "relay only, its own database; T21 owns the upgrade" },
     # rustls-pemfile is unmaintained, via axum-server in bogo-relay; no fixed release exists.
