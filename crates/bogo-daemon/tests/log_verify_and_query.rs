@@ -30,11 +30,25 @@ impl Drop for Daemon {
     }
 }
 
+/// Take a fresh home's lock. A process another test in this binary is spawning
+/// can briefly hold an inherited copy of the lock file, so allow a short wait.
+fn lock_fresh(home: &bogo_state::Home) -> bogo_state::WriterLock {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        match home.lock() {
+            Err(bogo_state::StateError::Locked(_)) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20))
+            }
+            other => break other.unwrap(),
+        }
+    }
+}
+
 #[tokio::test]
 async fn verify_rejects_forward_without_threshold() {
     let scratch = Scratch::new();
     let home = bogo_state::Home::open(&scratch.0).unwrap();
-    let lock = home.lock().unwrap();
+    let lock = lock_fresh(&home);
     let (log, _, _, _) = home.open_log(&lock).unwrap();
     let vectors: serde_json::Value =
         serde_json::from_str(include_str!("../../../vectors/requests.json")).unwrap();
@@ -75,17 +89,7 @@ async fn running_log_query_survives_one_megabyte() {
     std::fs::write(scratch.0.join("bogo.toml"), format!("version = 1\n[server]\nport = {port}\nmax_body = \"1MiB\"\n[defaults]\npolicy = \"approve\"\nmax_pending = 2\n")).unwrap();
     {
         let home = bogo_state::Home::open(&scratch.0).unwrap();
-        // A process another test in this binary is spawning can briefly hold an
-        // inherited copy of this fresh home's lock file, so allow a short wait.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        let lock = loop {
-            match home.lock() {
-                Err(bogo_state::StateError::Locked(_)) if std::time::Instant::now() < deadline => {
-                    std::thread::sleep(std::time::Duration::from_millis(20))
-                }
-                other => break other.unwrap(),
-            }
-        };
+        let lock = lock_fresh(&home);
         let (log, _, _, _) = home.open_log(&lock).unwrap();
         let events = (0..4)
             .map(|i| LogEvent::Call {
