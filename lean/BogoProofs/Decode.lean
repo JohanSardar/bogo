@@ -419,7 +419,22 @@ theorem decFormat_sound : Sound decFormat encFormat (fun f => f.wf = true) := by
           obtain ⟨e1, s1⟩ := decStr_sound _ _ _ h1
           exact ⟨by rw [e1]; rfl, s1⟩
         · simp at h
-      · simp at h
+      · split at h
+        · rename_i _ hb
+          subst hb
+          cases h
+          exact ⟨rfl, rfl⟩
+        · split at h
+          · rename_i _ hb
+            subst hb
+            cases h
+            exact ⟨rfl, rfl⟩
+          · split at h
+            · rename_i _ hb
+              subst hb
+              cases h
+              exact ⟨rfl, rfl⟩
+            · simp at h
 
 theorem decHint_sound : Sound decHint encHint (fun x => hintWf x = true) := by
   intro l x r h

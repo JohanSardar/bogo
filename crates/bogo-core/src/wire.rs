@@ -106,6 +106,9 @@ impl W {
         });
         match &h.1 {
             Format::Text => self.u8(0),
+            Format::Title => self.u8(2),
+            Format::Subtitle => self.u8(3),
+            Format::Image => self.u8(4),
             Format::MoneyMinor(c) => {
                 self.u8(1);
                 self.str(c);

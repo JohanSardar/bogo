@@ -70,6 +70,9 @@ def pathJ (p : Path) : JVal :=
 
 def formatJ : Format → JVal
   | .text => jstr "text"
+  | .title => jstr "title"
+  | .subtitle => jstr "subtitle"
+  | .image => jstr "image"
   | .moneyMinor c => jobj [("money_minor", jstr c)]
 
 /-- The decoded form of a request. -/
@@ -305,6 +308,17 @@ def reqCases : List ReqCase := [
   ⟨"filesystem-write", "the filesystem upstream: a write with multi-line content",
     some "{\"path\":\"/Users/johansardar/bogo-test/notes.md\",\"content\":\"# Trip\\n\\n- LJU → SFO\\n- \\\"6pm\\\"\\tflight\\n\"}",
     filesWrite⟩,
+  ⟨"display-roles", "Link spend request with signed card roles",
+    some "{\"name\":\"spend-request_create\",\"arguments\":{\"lineItem\":[{\"name\":\"Trip to SFO\",\"image_url\":\"https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=800\"}],\"merchantName\":\"Example Travel\",\"amount\":4700,\"context\":\"Flight reservation\",\"test\":true}}",
+    fun a => { payment 23 flight none a with
+      tool := "call_write_tool",
+      hints := [([.key "name"], .text),
+        ([.key "arguments", .key "lineItem", .index 0, .key "name"], .title),
+        ([.key "arguments", .key "lineItem", .index 0, .key "image_url"], .image),
+        ([.key "arguments", .key "merchantName"], .subtitle),
+        ([.key "arguments", .key "amount"], .moneyMinor "USD"),
+        ([.key "arguments", .key "context"], .text),
+        ([.key "arguments", .key "test"], .text)] }⟩,
   ⟨"max-times", "times at the top of the u64 range",
     some "[null,true,false,[],{}]",
     fun a => { payment 22 flight none a with

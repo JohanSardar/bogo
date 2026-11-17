@@ -82,7 +82,7 @@ Each approval request carries:
 - the upstream and tool name,
 - the complete, exact arguments,
 - the agent's justification, if any,
-- the display hints: which fields to highlight and how to format them,
+- the display hints: which fields to highlight and how to format them (`title`, `subtitle`, HTTPS `image`, `text` extra details, or money; the first money hint is the price),
 - the agent name, plus the client's self-reported name,
 - an identifier for the session,
 - a unique one-time nonce,
