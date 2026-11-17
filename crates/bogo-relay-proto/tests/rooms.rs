@@ -17,12 +17,17 @@ impl Relay {
         let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = socket.local_addr().unwrap();
         drop(socket);
-        // `make test` builds every binary first; this test runs from target/*/deps.
+        // `make test` builds every binary first. This test runs from somewhere under
+        // the profile directory (target/debug/deps, or target/debug/build/… with newer
+        // Cargo), so look upward for the relay.
         let binary = std::env::var_os("BOGO_RELAY_BIN")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| {
                 let exe = std::env::current_exe().unwrap();
-                exe.parent().unwrap().parent().unwrap().join("bogo-relay")
+                exe.ancestors()
+                    .map(|dir| dir.join("bogo-relay"))
+                    .find(|path| path.is_file())
+                    .expect("build bogo-relay first (`make test` does)")
             });
         let mut child = Command::new(binary)
             .args(["--listen", &address.to_string(), "--database", ":memory:"])
