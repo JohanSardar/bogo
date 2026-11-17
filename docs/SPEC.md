@@ -316,7 +316,7 @@ Note the difference between the last two. A **denial** is the owner saying no. A
 
 - **Rust** for BOGO and its relay, using the `rmcp` MCP SDK. It's the same stack the owner already uses, and Rust can call the C that Lean compiles to.
 - **Lean 4** for the decision logic, the request encoding and their proofs. That compiled Lean code is what runs inside BOGO.
-- **Swift / iOS**, inside the existing **apple-bridge-iphone** app (`/Users/johansardar/apple-bridge-iphone`), for the iPhone approver: Secure Enclave keys with Face ID.
+- **Swift / iOS**, inside the existing [**apple-bridge-iphone**](https://github.com/JohanSardar/apple-bridge-iphone) app, for the iPhone approver: Secure Enclave keys with Face ID.
 - **macOS** for BOGO in this version.
 - **The VPS that hosts Apple Bridge's relay** also hosts BOGO's relay, at **`bogo.eilmer.si`**, on its own port and service. DNS for `eilmer.si` is on Cloudflare.
 - **APNs** with the owner's existing key, sent from the Mac.
@@ -350,7 +350,7 @@ args = ["--mcp"]
 
 [upstreams.files]
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/johansardar/bogo-test"]
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/you/bogo-test"]
 
 [defaults]
 policy = "approve"

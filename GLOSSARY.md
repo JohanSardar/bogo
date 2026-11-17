@@ -62,7 +62,7 @@ _Avoid_: action name, sub-tool
 A tool whose policy is approve.
 
 **Justification**:
-The agent's own, unverified explanation attached to a tool call; never forwarded upstream.
+The agent's own, unverified explanation attached to a tool call; never forwarded upstream. The Review card labels it "Reason".
 _Avoid_: reason, metadata, note
 
 **Approval request**:
@@ -79,3 +79,37 @@ _Avoid_: rejection (reserved for BOGO refusing a call)
 
 **Rejection**:
 BOGO refusing to execute a tool call for any reason, including denial, expiry or invalid input.
+
+## Software and repos
+
+**Daemon**:
+`bogo-daemon`, the process that is BOGO on the owner's Mac; `bogo serve` and the LaunchAgent run it.
+_Avoid_: server, service, gateway process
+
+**Shim**:
+`bogo-shim`, the small stdio MCP server an agent's client starts, which passes every message to the daemon unchanged and ends the session when the client dies.
+_Avoid_: proxy, bridge, adapter
+
+**Software test approver**:
+An approver whose key is a file on the Mac and which signs without Face ID; only in builds with the `test-approvers` feature, for demos and tests. Its CLI kind is `soft`.
+_Avoid_: soft approver (in prose), mock approver
+
+**Apple Bridge**:
+The owner's separate product that gives agents the Mac's Messages, Mail, Calendar and more through a local MCP server; BOGO shares no code, server, relay or key with it.
+_Avoid_: bridge (alone), gateway (for BOGO)
+
+**Apple Bridge iPhone app**:
+The iPhone app in the `apple-bridge-iphone` repo; it is Apple Bridge's iPhone companion and also carries the BOGO tab.
+_Avoid_: BOGO app, the companion (alone)
+
+**BOGO tab**:
+The tab of the Apple Bridge iPhone app, built from `ios/BogoKit`, that is BOGO's iPhone approver.
+_Avoid_: BOGO section, Approvals tab, BOGO app
+
+**Review card**:
+The BOGO tab's screen for one approval request, showing what will run with Slide to approve and Deny; All details shows every value of the exact request.
+_Avoid_: approval screen, prompt, popup
+
+**Stand-in Mac**:
+A fake Mac built into Debug builds of the iPhone app, which sends realistic requests for demos and tests without a real BOGO.
+_Avoid_: mock Mac, demo Mac
