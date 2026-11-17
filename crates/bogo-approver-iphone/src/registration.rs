@@ -1,7 +1,8 @@
-//! Registration on the Mac: a pairing code the phone scans or types, its
-//! sealed relay room, then proof of possession and App Attest (ARCHITECTURE
-//! §3.11). Nothing becomes trusted here; the hub commits only what
-//! [`MacRegistration`] hands it.
+//! Registration on the Mac: a Bonjour advert the phone lists, the sealed
+//! relay room its pairing code names, numeric comparison on both screens,
+//! then proof of possession and App Attest (ARCHITECTURE §3.11). Nothing
+//! becomes trusted here; the hub commits only what [`MacRegistration`] hands
+//! it.
 use crate::{IphoneRoute, wire::*};
 use async_trait::async_trait;
 use base64::Engine;
@@ -27,8 +28,7 @@ fn transport(e: impl std::fmt::Display) -> RegError {
 }
 
 /// The Mac's seat in the pairing code's room. Every message in it is sealed
-/// with the code's room key, so only the phone holding the code can read or
-/// write it, and the relay sees ciphertext only.
+/// with the code's room key, so the relay sees ciphertext only.
 struct Room<'a> {
     route: &'a IphoneRoute,
     room: [u8; 16],
@@ -144,35 +144,6 @@ async fn room_close(relay: &crate::relay::Relay, room_hex: &str) {
         .await;
 }
 
-/// The code as a QR, drawn black on white so it scans on dark terminals too.
-fn qr(text: &str) -> String {
-    let Ok(code) = qrcode::QrCode::with_error_correction_level(text, qrcode::EcLevel::M) else {
-        return String::new();
-    };
-    let width = code.width();
-    let dark = |x: isize, y: isize| {
-        x >= 0
-            && y >= 0
-            && (x as usize) < width
-            && (y as usize) < width
-            && code[(x as usize, y as usize)] == qrcode::Color::Dark
-    };
-    let mut out = String::new();
-    for y in (-2..width as isize + 2).step_by(2) {
-        out.push_str("    \x1b[30;47m");
-        for x in -2..width as isize + 2 {
-            out.push(match (dark(x, y), dark(x, y + 1)) {
-                (true, true) => '█',
-                (true, false) => '▀',
-                (false, true) => '▄',
-                (false, false) => ' ',
-            });
-        }
-        out.push_str("\x1b[0m\n");
-    }
-    out
-}
-
 pub(crate) async fn run(
     route: &IphoneRoute,
     name: &str,
@@ -230,14 +201,18 @@ pub(crate) async fn run(
         seat.close().await;
         return Err(e);
     }
-    let text = code.text();
+    owner
+        .advertise(Some(&nearby(&route.cfg.mac_name, &code)))
+        .await;
     owner
         .status(&format!(
-            "On your iPhone, open BOGO, tap Add Mac and scan this code, or type it:\n\n    {text}\n\n{}",
-            qr(&text)
+            "On your iPhone, open BOGO → Macs → Add Mac and tap \"{}\". Keep the iPhone on this Mac's network.",
+            route.cfg.mac_name
         ))
         .await;
-    match exchange(&mut seat, e_m, e_pub_m, name, owner).await {
+    let result = exchange(&mut seat, e_m, e_pub_m, name, owner).await;
+    owner.advertise(None).await;
+    match result {
         Ok(p) => Ok(p),
         Err(e) => {
             if matches!(e, RegError::Refused(_)) {
@@ -265,6 +240,8 @@ async fn exchange<'a>(
         .await?
         .try_into()
         .map_err(|_| RegError::Aborted("malformed hello".into()))?;
+    // A phone has the seat: stop showing this Mac to others nearby.
+    owner.advertise(None).await;
     let n_m: [u8; 16] = rand::random();
     let commit = commitment(&e_pub_m, &e_pub_p, &n_m);
     seat.send(PHASE_COMMIT, &commit).await?;
@@ -278,8 +255,7 @@ async fn exchange<'a>(
     if !shared.was_contributory() {
         return Err(RegError::Aborted("the phone sent a low-order key".into()));
     }
-    // The room key already proves the phone holds the code, so no digits
-    // need comparing. The transcript is unchanged, with the room ID as offer ID.
+    // The room ID stands where the offer ID did; the transcript is otherwise unchanged.
     let t = Transcript {
         offer_id: seat.room,
         e_pub_m,
@@ -290,6 +266,12 @@ async fn exchange<'a>(
     };
     let th = t.hash();
     let key = phase_key(shared.as_bytes(), &th);
+    // The code in the advert only finds the room; anyone nearby can read it.
+    // These digits, matched by the owner on both screens, are what keep an
+    // impostor out.
+    if !owner.confirm_code(&spaced(&t.code())).await {
+        return Err(RegError::Mismatch);
+    }
     let challenge: [u8; 32] = rand::random();
     let confirmed = MacConfirmed {
         mac_e2e: B(route.keys.e2e_public.to_vec()),
@@ -305,7 +287,7 @@ async fn exchange<'a>(
     )
     .await?;
     owner
-        .status("The phone has the code. Confirm on the phone with Face ID.")
+        .status("Confirmed on the Mac. Now confirm on the phone with Face ID.")
         .await;
     let sealed = seat.next(PHASE_REG_SUBMIT).await?;
     let submit: RegSubmit = open_phase(&key, &seat.room, PHASE_REG_SUBMIT, &sealed)

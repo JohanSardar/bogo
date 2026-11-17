@@ -89,10 +89,12 @@ bogo approver list
 bogo approver revoke 'Johan iPhone'
 ```
 
-`approver add` shows a pairing code as a QR and as text. Scan it in BOGO → Macs
-→ Add Mac (or type it), then confirm on the phone with Face ID. The code works
-once, only while the command runs. Reusing a name registers a new key and
-revokes the old approver. Every completed registration
+While `approver add` runs, the Mac shows up in BOGO → Macs → Add Mac on any
+iPhone on the same network. Tap it, check that the terminal and the phone show
+the same 6 digits, answer `y` in the terminal, then confirm on the phone with
+Face ID. A mismatch or a "no" on either side registers nothing. The command,
+not the daemon, shows the Mac on the network, so run it from a terminal.
+Reusing a name registers a new key and revokes the old approver. Every completed registration
 and revocation enters the audit log before it affects requests. Registry caches
 are never used as authority by the daemon.
 

@@ -190,12 +190,13 @@ The first approver is a **BOGO section inside the existing Apple Bridge iPhone a
 - A new request arrives as a time-sensitive notification. The notification offers **Deny** only. Tapping it opens the full review screen, which is the only place **Approve** exists, because a banner can't show every argument.
 - Every approval needs Face ID. The approval key lives in the Secure Enclave and works only after Face ID. If Face ID enrollment changes, the key stops working and the phone must be registered again.
 
-**Registration (Add Mac)** uses a one-time pairing code, the way croc and Happy pair devices. Nothing needs typing unless the camera can't be used:
-1. On the Mac, the owner runs `bogo approver add "Johan iPhone"`. It shows a QR code and the same code as text.
-2. On the phone, the owner opens BOGO → Macs → **Add Mac** and scans the code (or types it).
-3. The owner confirms on the phone with Face ID. That creates the phone's approval key.
+**Registration (Add Mac)** uses numeric comparison, like pairing a Bluetooth device. There is no QR code to scan and nothing to type:
+1. On the Mac, the owner runs `bogo approver add "Johan iPhone"`.
+2. On the phone, the owner opens BOGO → Macs → **Add Mac** and taps their Mac in the list.
+3. Both screens show the same 6 digits.
+4. The owner confirms on the Mac, then confirms on the phone with Face ID. That creates the phone's approval key.
 
-Only the phone holding the code can reach that Mac's pairing, so two pairings at the same moment never mix, and nobody else can pose as either side. The relay needs no setup: BOGO uses a free public relay unless `[relay] url` names the owner's own, and the code tells the phone which relay to use.
+Like a Bluetooth device, the waiting Mac shows up only nearby: the phone lists it while both are on the same network, and nothing on the relay lists it. A mismatch, or a "no" on either device, registers nothing on either side. The relay needs no setup: BOGO uses a free public relay unless `[relay] url` names the owner's own, and the Mac tells the phone which relay it uses, so the phone needs no setting either.
 
 During registration the phone also proves, through Apple's App Attest, that it is the genuine, unmodified app on a real iPhone. BOGO refuses registration without that proof, so "the approval key is a Face ID–locked Secure Enclave key" is something BOGO checks, not just something it hopes.
 
@@ -405,6 +406,7 @@ Agent (Docker sandbox) ──MCP/HTTP + agent token──▶ BOGO (Mac) ──�
 - **Approving from the notification banner.** It can't show every argument. The banner offers only Deny.
 - **Using Apple Bridge's gateway, relay, pairing or APNs path,** or changing anything in the Apple Bridge Mac repository.
 - **The old Approvals feature in the iPhone app.** It's replaced entirely by the BOGO section.
+- **QR-code registration.** The owner finds it less clean than matching 6 digits.
 - **Mac Touch ID approver.** Skipped for now.
 - **Browser passkey, hardware security key and second-person approvers.** The design allows them; they're not built now.
 - **Android approver.**

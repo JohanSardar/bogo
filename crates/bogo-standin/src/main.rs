@@ -539,12 +539,40 @@ impl Sink for Standin {
 
 struct Terminal {
     lines: Mutex<Lines<BufReader<Stdin>>>,
+    advert: Mutex<Option<tokio::process::Child>>,
 }
 
 #[async_trait]
 impl OwnerPrompt for Terminal {
     async fn status(&self, line: &str) {
         println!("  {line}");
+    }
+    async fn confirm_code(&self, code: &str) -> bool {
+        println!();
+        println!("    ┌───────────┐");
+        println!("    │  {code}  │   Does the phone show the same 6 digits? [y/N]");
+        println!("    └───────────┘");
+        let answer = self
+            .lines
+            .lock()
+            .await
+            .next_line()
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        println!("  owner answered: {answer:?}");
+        matches!(answer.trim(), "y" | "Y" | "yes")
+    }
+    async fn advertise(&self, n: Option<&bogo_approver::Nearby>) {
+        let mut advert = self.advert.lock().await;
+        *advert = None;
+        if let Some(n) = n {
+            match bogo_approver_iphone::bonjour::advertise(n) {
+                Ok(child) => *advert = Some(child),
+                Err(e) => println!("  could not advertise on the local network: {e}"),
+            }
+        }
     }
 }
 
@@ -1044,6 +1072,7 @@ async fn run(args: Args) -> Result<(), String> {
     );
     let terminal = Arc::new(Terminal {
         lines: Mutex::new(BufReader::new(tokio::io::stdin()).lines()),
+        advert: Mutex::new(None),
     });
     let app = App {
         mac,

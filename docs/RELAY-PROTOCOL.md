@@ -89,8 +89,9 @@ still live. Endpoint deduplication also covers messages resent after relay ack.
 ## Pairing rooms
 
 A room carries one registration between its owner (the Mac) and one other
-mailbox (the phone). Its 16-byte ID is a hash of the pairing code's secret, so
-only the two devices holding the code can name it. Rooms are never listed. The
+mailbox (the phone). Its 16-byte ID is a hash of the pairing code's secret,
+which the relay never sees, so only devices that read the waiting Mac's local
+advert can name it. Rooms are never listed. The
 relay sees each body as opaque bytes: endpoints seal every room message with
 the code's room key, and the relay never authorizes registration. Every body is
 `{room, …}` JSON with hex fields; IDs never appear in URLs.
@@ -164,11 +165,15 @@ newer `pushToken` arrives.
 
 ### Registration in the pairing room
 
-`bogo approver add` shows the pairing code as a QR and as text:
-`bogo1-` and 24 characters from `abcdefghijkmnpqrstuvwxyz23456789` (the
-15-byte secret `s`, base32, in groups of four), plus `@host[:port]` when the
-Mac's relay is not the public one. The phone uses that relay for the pairing
-and for every message to that Mac afterwards. From the secret:
+While `bogo approver add` runs, the Mac shows itself on its local network as a
+Bonjour service of type `_bogo-pair._tcp`, named after the Mac (`BOGO_MAC_NAME`),
+with one TXT entry `c=` and a fresh pairing code: `bogo1-` and 24 characters
+from `abcdefghijkmnpqrstuvwxyz23456789` (the 15-byte secret `s`, base32, in
+groups of four), plus `@host[:port]` when the Mac's relay is not the public
+one. The command shows the advert with macOS's `dns-sd`, from the terminal, and
+withdraws it once a phone joins the room or the command ends. The phone lists
+these adverts in Add Mac; when the owner taps one, it uses the named relay for
+the pairing and for every message to that Mac afterwards. From the secret:
 
 - `room = SHA-256("bogo-pair-room/v1" ‖ s)[0..16]`, which also stands as the
   transcript's `offerId`;
@@ -177,7 +182,8 @@ and for every message to that Mac afterwards. From the secret:
 Room bodies are `phase ‖ ChaCha20-Poly1305(roomKey, nonce 0^11 ‖ phase, AAD
 "bogo-pair/v1" ‖ room ‖ phase, payload)`; each phase is sent once per room. A
 body that does not open is ignored, so only a holder of the code can speak in
-the room, and the relay sees no key, nonce, label or name. The message ID of
+the room, and the relay sees no key, nonce, label or name. Anyone on the Mac's
+network can read the code, so it authenticates nothing; the digits below do. The message ID of
 each phase is `SHA-256("bogo-reg-msg" ‖ room ‖ phase)[0..16]`, so repeats are
 idempotent.
 
@@ -194,9 +200,16 @@ idempotent.
 | 0x08 REFUSED | Mac | sealed `{why}` |
 | 0x09 MAC_ABORT / 0x0a PHONE_ABORT | either | empty |
 
-The room key proves each side holds the code, so no digits are compared. The
-phone checks `Cm` against the reveal, and the transcript is unchanged, so the
-proof of possession and App Attest hash below are exactly as before. Then:
+The phone checks `Cm` against the reveal. Commit then reveal stops either side
+from choosing its key after seeing the other's. Both sides then show
+
+- `code = u64be(SHA-256("bogo-reg-code" ‖ ePubM ‖ ePubP ‖ Nm ‖ Np)[0..8]) mod 10^6`,
+  as `382 917`.
+
+The owner compares the two screens and answers on the Mac; only a yes sends
+MAC_CONFIRMED, and a no sends MAC_ABORT. The phone enables its Face ID confirm
+only after MAC_CONFIRMED, and a no on the phone sends PHONE_ABORT, so nothing
+is registered unless the owner confirms on both. Then:
 
 - `th = SHA-256("bogo-reg-transcript/v1" ‖ offerId ‖ ePubM ‖ ePubP ‖ Cm ‖ Nm ‖ Np)`
 - `K = HKDF-SHA256(salt = th, ikm = X25519(eM, eP), info = "bogo-reg-key/v1")`
@@ -207,8 +220,8 @@ proof of possession and App Attest hash below are exactly as before. Then:
 - App Attest's client data hash is `registration_client_data_hash(th,
   challenge, approvalKey, phoneE2e, phoneRelay)`.
 
-The Mac sends MAC_CONFIRMED once the reveal is out; an interrupted command sends
-MAC_ABORT. Before committing, it checks that the room peer's mailbox is `SHA-256(phoneRelay)`, the proof, encoding version 1, and the
+The Mac sends MAC_CONFIRMED once the owner confirms the digits; a no, or an
+interrupted command, sends MAC_ABORT. Before committing, it checks that the room peer's mailbox is `SHA-256(phoneRelay)`, the proof, encoding version 1, and the
 App Attest evidence. Evidence that is present is always verified. Missing
 evidence is accepted only by a build with the `test-registration` feature
 (recorded as `simulator-test`), and every other build refuses it. A duplicate

@@ -287,7 +287,7 @@ restricted for one named agent without duplicating its display settings.
 
 | Key | Meaning | Refused values |
 |---|---|---|
-| `relay.url` | Your own relay, `https://host` or `https://host:port`. Without a `[relay]` table BOGO uses the free public relay, `https://bogo.eilmer.si:8443`. A pairing code names a non-public relay, so the phone needs no setting. See [self-hosting](self-hosting-relay.md). | Missing (when the table exists), non-string, not `https://`, empty host, or a path, query, fragment or user part. |
+| `relay.url` | Your own relay, `https://host` or `https://host:port`. Without a `[relay]` table BOGO uses the free public relay, `https://bogo.eilmer.si:8443`. A waiting Mac tells the phone a non-public relay's address, so the phone needs no setting. See [self-hosting](self-hosting-relay.md). | Missing (when the table exists), non-string, not `https://`, empty host, or a path, query, fragment or user part. |
 | `relay.max_message_age`, `relay.mailbox_capacity` | Ignored; accepted so older files still load. Retention and capacity are `bogo-relay` flags. | Nothing. |
 | `apns.key` | Required `{ secret = "NAME" }`; route needs a path secret naming the APNs `.p8` file. | Missing/malformed/unknown reference. Config parser accepts a value secret, but daemon rejects it when constructing the iPhone route. |
 | `apns.key_id` | APNs signing key ID; required nonblank string. | Missing, blank, non-string. No ID-shape check in config parser. |

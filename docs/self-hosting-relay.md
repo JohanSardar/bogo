@@ -14,9 +14,9 @@ Whichever way you run it, point BOGO at it with one setting in
 url = "https://relay.example.com"
 ```
 
-The phone needs no setting. The pairing code `bogo approver add` shows names
-your relay (`bogo1-…@relay.example.com`), and the phone uses it for that Mac
-from then on. A phone already paired through another relay keeps working only
+The phone needs no setting. While `bogo approver add` runs, the Mac's local
+advert names your relay (`bogo1-…@relay.example.com`), and the phone uses it
+for that Mac from then on. A phone already paired through another relay keeps working only
 on that relay, so add the Mac again after switching.
 
 ## On a VPS (Docker)

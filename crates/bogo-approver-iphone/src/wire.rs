@@ -1,7 +1,8 @@
 //! The iPhone route's wire formats, shared by the Mac route and any phone
-//! implementation: envelope payloads (ARCHITECTURE §3.11) and the
-//! pairing code and the registration phases carried in its relay room. Documented in
-//! `docs/RELAY-PROTOCOL.md` § "iPhone route messages".
+//! implementation: envelope payloads (ARCHITECTURE §3.11), the pairing code
+//! a waiting Mac shows on the local network, and the registration phases
+//! carried in its relay room. Documented in `docs/RELAY-PROTOCOL.md`
+//! § "iPhone route messages".
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit, aead::Aead, aead::Payload};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
@@ -139,16 +140,18 @@ impl PhoneMsg {
 
 // ---- Pairing code ----
 
-/// The secret a pairing code carries: 120 bits, shown as 24 characters.
+/// The secret a pairing code carries: 120 bits, written as 24 characters.
 pub const PAIR_SECRET_LEN: usize = 15;
 const PAIR_ALPHABET: &[u8; 32] = b"abcdefghijkmnpqrstuvwxyz23456789";
 const PAIR_PREFIX: &str = "bogo1-";
 
-/// What `bogo approver add` shows and the phone scans or types:
+/// What a waiting Mac puts in its Bonjour advert ([`NEARBY_SERVICE`]), for
+/// the phone to read when the owner taps that Mac:
 /// `bogo1-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx`, plus `@host[:port]` when the Mac
 /// uses a relay other than the public one. The secret names the room, so only
-/// the two devices holding the code can find it, and seals every message in
-/// it, so the relay sees only ciphertext and can pose as neither side.
+/// devices on the Mac's network can find it, and seals every message in it,
+/// so the relay sees only ciphertext. The code is not what authenticates: the
+/// six digits both screens show ([`code`]) are.
 #[derive(Clone, PartialEq, Eq)]
 pub struct PairCode {
     pub secret: [u8; PAIR_SECRET_LEN],
@@ -205,7 +208,7 @@ impl PairCode {
         out
     }
 
-    /// Reads a code as typed: any case, with or without dashes and spaces.
+    /// Reads a code: any case, with or without dashes and spaces.
     pub fn parse(text: &str) -> Option<PairCode> {
         let text = text.trim();
         let (code, relay) = match text.split_once('@') {
@@ -288,6 +291,22 @@ pub fn open_room(key: &[u8; 32], room: &[u8; 16], body: &[u8]) -> Option<(u8, Ve
     Some((phase, plain))
 }
 
+// ---- Nearby ----
+
+/// The Bonjour service type a waiting Mac advertises while `bogo approver
+/// add` runs. Its instance name is the Mac's name, and its TXT record holds
+/// `c=` and the pairing code.
+pub const NEARBY_SERVICE: &str = "_bogo-pair._tcp";
+
+/// The advert for a Mac named `mac_name` waiting with `code`.
+pub fn nearby(mac_name: &str, code: &PairCode) -> bogo_approver::Nearby {
+    bogo_approver::Nearby {
+        service: NEARBY_SERVICE.into(),
+        name: mac_name.into(),
+        txt: vec![format!("c={}", code.text())],
+    }
+}
+
 // ---- Registration (in the pairing code's room) ----
 
 pub const PHASE_HELLO: u8 = 0x01; // phone: ePubP (32)
@@ -318,6 +337,18 @@ pub fn commitment(e_pub_m: &[u8; 32], e_pub_p: &[u8; 32], n_m: &[u8; 16]) -> [u8
     Sha256::digest([b"bogo-reg-commit".as_slice(), e_pub_m, e_pub_p, n_m].concat()).into()
 }
 
+/// The six digits both screens show: `u64be(SHA-256(…)[0..8]) mod 10^6`.
+pub fn code(e_pub_m: &[u8; 32], e_pub_p: &[u8; 32], n_m: &[u8; 16], n_p: &[u8; 16]) -> String {
+    let d = Sha256::digest([b"bogo-reg-code".as_slice(), e_pub_m, e_pub_p, n_m, n_p].concat());
+    let v = u64::from_be_bytes(d[..8].try_into().unwrap()) % 1_000_000;
+    format!("{v:06}")
+}
+
+/// `382917` → `382 917`.
+pub fn spaced(code: &str) -> String {
+    format!("{} {}", &code[..3], &code[3..])
+}
+
 pub struct Transcript {
     pub offer_id: [u8; 16],
     pub e_pub_m: [u8; 32],
@@ -342,6 +373,9 @@ impl Transcript {
             .concat(),
         )
         .into()
+    }
+    pub fn code(&self) -> String {
+        code(&self.e_pub_m, &self.e_pub_p, &self.n_m, &self.n_p)
     }
 }
 

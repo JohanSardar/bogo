@@ -4,6 +4,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
+    io::Write,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
 };
@@ -489,6 +490,9 @@ pub async fn request(root: &Path, c: Command) -> Result<Value> {
         .await
         .map_err(error)?;
     let mut result_bytes = Vec::new();
+    // The registering Mac's local-network advert. This process shows it, not
+    // the daemon: a command run from a terminal may use the local network.
+    let mut _advert: Option<tokio::process::Child> = None;
     loop {
         let v: Value = serde_json::from_str(&line(&mut r).await?).map_err(error)?;
         if let Some(chunk) = v.get("result_chunk").and_then(Value::as_str) {
@@ -500,6 +504,33 @@ pub async fn request(root: &Path, c: Command) -> Result<Value> {
         }
         if let Some(s) = v.get("status").and_then(Value::as_str) {
             eprintln!("{s}");
+            continue;
+        }
+        if let Some(n) = v.get("advertise") {
+            _advert = None;
+            if let Some(n) = nearby(n) {
+                match bogo_approver_iphone::bonjour::advertise(&n) {
+                    Ok(child) => _advert = Some(child),
+                    Err(e) => eprintln!("Could not show this Mac on the local network: {e}"),
+                }
+            }
+            continue;
+        }
+        if let Some(code) = v.get("confirm_code").and_then(Value::as_str) {
+            eprint!("Does the iPhone show {code}? [y/N] ");
+            std::io::stderr().flush().map_err(error)?;
+            let answer = tokio::task::spawn_blocking(|| {
+                let mut s = String::new();
+                std::io::stdin()
+                    .read_line(&mut s)
+                    .map(|_| matches!(s.trim(), "y" | "Y" | "yes"))
+            })
+            .await
+            .map_err(error)?
+            .map_err(error)?;
+            w.write_all(format!("{}\n", json!({"confirmed":answer})).as_bytes())
+                .await
+                .map_err(error)?;
             continue;
         }
         if let Some(e) = v.get("error").and_then(Value::as_str) {
@@ -541,6 +572,34 @@ impl OwnerPrompt for RemotePrompt {
     async fn status(&self, s: &str) {
         let _ = self.send(json!({"status":s})).await;
     }
+    async fn confirm_code(&self, code: &str) -> bool {
+        if self.send(json!({"confirm_code":code})).await.is_err() {
+            return false;
+        }
+        let mut r = self.r.lock().await;
+        tokio::time::timeout(std::time::Duration::from_secs(120), line(&mut *r))
+            .await
+            .ok()
+            .and_then(|r| r.ok())
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .is_some_and(|v| v["confirmed"] == true)
+    }
+    async fn advertise(&self, n: Option<&a::Nearby>) {
+        let v = n.map(|n| json!({"service":n.service,"name":n.name,"txt":n.txt}));
+        let _ = self.send(json!({ "advertise": v })).await;
+    }
+}
+fn nearby(v: &Value) -> Option<a::Nearby> {
+    Some(a::Nearby {
+        service: v.get("service")?.as_str()?.into(),
+        name: v.get("name")?.as_str()?.into(),
+        txt: v
+            .get("txt")?
+            .as_array()?
+            .iter()
+            .map(|t| t.as_str().map(str::to_owned))
+            .collect::<Option<_>>()?,
+    })
 }
 impl Shell {
     async fn commit_approver(

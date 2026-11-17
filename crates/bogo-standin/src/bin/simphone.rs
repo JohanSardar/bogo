@@ -1,5 +1,6 @@
 //! `bogo-simphone`: the phone's half of BOGO's relay protocol, in test builds
-//! only. It is a software phone that joins a pairing code's room and then
+//! only. It is a software phone that lists the Macs waiting on the local
+//! network, joins the one it is told to add, compares the six digits, and then
 //! talks to the Mac through its mailbox, so the Mac side can be exercised end
 //! to end through a real relay without the app.
 //!
@@ -761,7 +762,7 @@ impl Seat<'_> {
         for _ in 0..2000 {
             let msgs = match self.client.room_fetch(&self.room_hex).await {
                 Err(bogo_relay_proto::Error::Status(404)) => {
-                    return Err("no Mac is waiting with this code".into());
+                    return Err("that Mac is no longer waiting".into());
                 }
                 other => other.map_err(|e| e.to_string())?,
             };
@@ -797,9 +798,59 @@ impl Seat<'_> {
     }
 }
 
-async fn add(ctx: &Ctx, code: &str) -> Result<(), String> {
+/// Runs `dns-sd` for a moment and returns what it printed.
+async fn dns_sd(args: &[&str]) -> String {
+    let Ok(mut child) = tokio::process::Command::new("/usr/bin/dns-sd")
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+    else {
+        return String::new();
+    };
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let _ = child.start_kill();
+    child
+        .wait_with_output()
+        .await
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default()
+}
+
+/// The Macs waiting nearby, as (name, pairing code), read from their Bonjour
+/// adverts the way the app's browser reads them.
+async fn nearby() -> Vec<(String, PairCode)> {
+    let service = format!("{NEARBY_SERVICE}.");
+    let mut names: Vec<String> = dns_sd(&["-B", NEARBY_SERVICE, "local"])
+        .await
+        .lines()
+        .filter(|l| l.contains(" Add "))
+        .filter_map(|l| Some(l.split_once(&service)?.1.trim().to_string()))
+        .collect();
+    names.sort();
+    names.dedup();
+    let mut out = Vec::new();
+    for name in names {
+        let txt = dns_sd(&["-L", &name, NEARBY_SERVICE, "local"]).await;
+        if let Some(code) = txt
+            .split_whitespace()
+            .find_map(|w| w.strip_prefix("c=").and_then(PairCode::parse))
+        {
+            out.push((name, code));
+        }
+    }
+    out
+}
+
+async fn add(ctx: &Ctx, name: &str) -> Result<(), String> {
     let client = &ctx.client;
-    let code = PairCode::parse(code).ok_or("usage: add <pairing code from `bogo approver add`>")?;
+    let found = nearby().await;
+    let (name, code) = found
+        .into_iter()
+        .find(|(n, _)| name.is_empty() || n == name)
+        .ok_or("no such Mac waiting nearby: run `bogo approver add` on the Mac first")?;
+    println!("  Add Mac: \"{name}\"");
     let room = code.room();
     let seat = Seat {
         client,
@@ -814,7 +865,7 @@ async fn add(ctx: &Ctx, code: &str) -> Result<(), String> {
         .1
         .try_into()
         .map_err(|_| "bad Mac key")?;
-    println!("  Add Mac: joined the code's room");
+    println!("  Add Mac: joined its room");
     let e_p = x25519_dalek::StaticSecret::random_from_rng(rand::rngs::OsRng);
     let e_pub_p = x25519_dalek::PublicKey::from(&e_p).to_bytes();
     seat.send(PHASE_HELLO, &e_pub_p).await?;
@@ -850,6 +901,13 @@ async fn add(ctx: &Ctx, code: &str) -> Result<(), String> {
     };
     let th = t.hash();
     let key = phase_key(shared.as_bytes(), &th);
+    println!();
+    println!("    ┌───────────┐");
+    println!(
+        "    │  {}  │   phone screen: check it matches the Mac",
+        spaced(&t.code())
+    );
+    println!("    └───────────┘");
     let sealed = seat.wait(PHASE_MAC_CONFIRMED).await?.1;
     let confirmed: MacConfirmed = open_phase(&key, &offer_id, PHASE_MAC_CONFIRMED, &sealed)
         .and_then(|p| serde_json::from_slice(&p).ok())
@@ -862,7 +920,12 @@ async fn add(ctx: &Ctx, code: &str) -> Result<(), String> {
         confirmed.mac_name,
         short(&confirmed.bogo_id.0)
     );
-    if !ask(ctx, "  Confirm on the phone (simulated Face ID)?").await {
+    if !ask(
+        ctx,
+        "  Do the codes match? Confirm on the phone (simulated Face ID)?",
+    )
+    .await
+    {
         seat.send(PHASE_PHONE_ABORT, &[]).await?;
         return Err("cancelled on the phone".into());
     }
@@ -996,8 +1059,14 @@ async fn command(ctx: &Ctx, line: &str) -> Result<bool, String> {
     match words[0] {
         "quit" | "exit" => return Ok(false),
         "help" => println!(
-            "add <code> | status | requests | approve <#> | deny <#> [note] | pause <#> | sync | remove | outbox | replay <n> | copy <n> | hold | release [reverse] | quit"
+            "nearby | add [name] | status | requests | approve <#> | deny <#> [note] | pause <#> | sync | remove | outbox | replay <n> | copy <n> | hold | release [reverse] | quit"
         ),
+        "nearby" => {
+            for (name, code) in nearby().await {
+                let relay = code.relay.as_deref().unwrap_or("the public relay");
+                println!("  \"{name}\" waiting, through {relay}");
+            }
+        }
         "add" => add(ctx, &words[1..].join(" ")).await?,
         "status" => {
             let p = ctx.phone.lock().await;

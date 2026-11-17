@@ -5,6 +5,7 @@
 //! position, so a late, early or repeated one does no harm. Inbound messages
 //! are acknowledged to the relay only after the hub reports their effect
 //! durable.
+pub mod bonjour;
 mod registration;
 mod relay;
 pub mod wire;

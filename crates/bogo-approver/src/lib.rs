@@ -184,12 +184,31 @@ pub trait InboundHandler: Send + Sync {
 #[async_trait]
 pub trait OwnerPrompt: Send + Sync {
     async fn status(&self, line: &str);
+    /// Show the code and ask the owner whether the approver shows the same.
+    async fn confirm_code(&self, code: &str) -> bool;
+    /// Show this Mac to approvers nearby while it waits for one (`Some`), or
+    /// stop (`None`). Prompts with no local network ignore it.
+    async fn advertise(&self, _nearby: Option<&Nearby>) {}
+}
+
+/// What a waiting Mac shows on the local network, so a nearby approver can
+/// list it and join its pairing room.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Nearby {
+    /// The Bonjour service type, like `_bogo-pair._tcp`.
+    pub service: String,
+    /// The name the approver lists, usually the Mac's name.
+    pub name: String,
+    /// TXT record entries, `key=value`.
+    pub txt: Vec<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum RegError {
     #[error("registration aborted: {0}")]
     Aborted(String),
+    #[error("the owner said the codes do not match; nothing was registered")]
+    Mismatch,
     #[error("registration refused: {0}")]
     Refused(String),
     #[error("relay: {0}")]

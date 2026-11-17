@@ -1,6 +1,6 @@
 [package]
 name = "bogo-approver-iphone"
-description = "iPhone route: pairing-code registration with App Attest, delivery through BOGO's relay, decision intake, notices, APNs pushes"
+description = "iPhone route: nearby registration with 6-digit comparison and App Attest, delivery through BOGO's relay, decision intake, notices, APNs pushes"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -20,7 +20,7 @@ bogo-apns = { path = "../bogo-apns" }
 bogo-attest = { path = "../bogo-attest" }
 bogo-verify = { path = "../bogo-verify" }
 async-trait = "0.1"
-tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
+tokio = { version = "1", features = ["sync", "time", "rt", "macros", "process"] }
 serde.workspace = true
 serde_json.workspace = true
 x25519-dalek = { version = "2", features = ["static_secrets"] }
@@ -32,7 +32,6 @@ hex = "0.4"
 base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tracing.workspace = true
-qrcode = { version = "0.14", default-features = false }
 
 [lints]
 workspace = true
