@@ -5,6 +5,7 @@
 **Approve your AI agent's risky tool calls on your iPhone, one exact call at a time.**
 
 [![Join the TestFlight beta](https://img.shields.io/badge/TestFlight-join_the_beta-0D96F6?logo=apple&logoColor=white)](https://testflight.apple.com/join/dQu75bv1)
+[![CI](https://github.com/JohanSardar/bogo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JohanSardar/bogo/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 <picture>
