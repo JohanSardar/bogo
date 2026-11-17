@@ -17,7 +17,7 @@ A README that looks polished but whose quick start fails when copied does not co
 - The research is in `docs/research/` in the bogo repo: one file per project plus a ranked summary with links to their files.
 - The owner decided to keep BOGO's iPhone code inside the Apple Bridge iPhone app. There is no standalone app.
 - The Apple Bridge Mac repo (`JohanSardar/apple-bridge`) is public, but nothing in it may be changed. The READMEs may link to it.
-- **TestFlight:** another ticket, T20, is getting the app onto TestFlight with a public link right now. If you don't have the link when you finish, leave the button out and say so in the PR; the coordinator adds it when T20 lands. Don't invent a link.
+- **TestFlight:** the public link is https://testflight.apple.com/join/dQu75bv1. The build is waiting to be submitted for Beta App Review, so the link only admits testers once a build passes review. Say that honestly next to the button. The release steps are in the iPhone repo's `docs/release.md`.
 - **Screenshots:** real Simulator screenshots of the current app are in `/Users/johansardar/.t3/worktrees/apple-bridge-iphone/t19-evidence/`. Fresh ones from the app on `main` are better. Debug builds have Settings → Demo, which sends a realistic Link purchase to the Review card.
 - **Files other tickets own, running at the same time:**
   - T21 owns the relay: `docs/RELAY-PROTOCOL.md`, `deploy/relay/`, the relay crates, and `ios/BogoKit/BogoRelay/`. Link to the relay docs, but don't edit them.
