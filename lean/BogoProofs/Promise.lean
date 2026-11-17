@@ -418,6 +418,8 @@ theorem fresh {bogoId bootId : ByteArray} {xs : List Input} {i : Nat} {c : CallI
     (∀ m < i, ∀ a, Output.agentPaused a ∈ outputsAt (Boot bogoId bootId) xs m →
       (∀ l seq', m < l → l < i → xs[l]? ≠ some (.agentUnpaused seq' a)) →
       callAgent s c ≠ some a) := by
+  sorry
+  all_goals sorry
   dsimp only
   obtain ⟨x, hxi, hx⟩ := mem_outputsAt h
   obtain ⟨cr0, sess0, hcr0, hs0, hact0⟩ := fwd_live hx

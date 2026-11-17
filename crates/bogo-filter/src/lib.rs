@@ -1,5 +1,5 @@
 //! Pure filtering of the serialized MCP CallToolResult. No argument values enter here.
-use serde_json::Value;
+use   serde_json::Value;
 
 pub const REMOVED: &str = "[removed by BOGO]";
 pub const WITHHELD: &str = "[output withheld by BOGO: not filterable]";
