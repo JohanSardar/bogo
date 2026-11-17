@@ -1,0 +1,26 @@
+# Your own BOGO relay with automatic HTTPS. On a machine where ports 80 and 443
+# reach it and DOMAIN's DNS points at it:
+#   DOMAIN=relay.example.com docker compose up -d
+# then set `[relay] url = "https://relay.example.com"` in ~/.bogo/bogo.toml.
+services:
+  relay:
+    build:
+      context: https://github.com/JohanSardar/bogo.git#main
+      dockerfile: deploy/relay/Dockerfile
+    restart: unless-stopped
+    environment:
+      BOGO_RELAY_SERVICE: ${DOMAIN:?set DOMAIN to the relay's hostname}:443
+    volumes:
+      - relay-data:/data
+  https:
+    image: caddy:2.10.2
+    restart: unless-stopped
+    command: caddy reverse-proxy --from ${DOMAIN:?set DOMAIN to the relay's hostname} --to relay:8080
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy-data:/data
+volumes:
+  relay-data:
+  caddy-data:

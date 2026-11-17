@@ -7,8 +7,9 @@
 //!   must never run without approval (SPEC Principle 5, ARCHITECTURE §11 question 11).
 //! * Every `{ secret = "name" }` must name an entry in `secrets.toml`. Secret values never
 //!   appear in `Debug` output or errors (see [`Secret`]).
-//! * Values the spec leaves to the owner (`max_pending`, the relay's `max_message_age`, the
-//!   iPhone `approve_arm_delay`) ship unset, and BOGO refuses to start until they are set.
+//! * Values the spec leaves to the owner (`max_pending`, the iPhone `approve_arm_delay`) ship
+//!   unset, and BOGO refuses to start until they are set.
+//! * The relay needs no setting: without `[relay]`, BOGO uses the public relay.
 
 #![forbid(unsafe_code)]
 
@@ -69,7 +70,8 @@ pub const VERSION: i64 = 1;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub server: Server,
-    pub relay: Option<Relay>,
+    /// The public relay unless `[relay] url` names the owner's own.
+    pub relay: Relay,
     pub apns: Option<Apns>,
     pub iphone: Option<IphoneApprover>,
     pub upstreams: BTreeMap<String, Upstream>,
@@ -96,11 +98,16 @@ pub struct Server {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Relay {
+    /// `https://host[:port]`, without a path.
     pub url: String,
-    /// How long the relay keeps an undelivered message. Never a request expiry.
-    pub max_message_age: Duration,
-    pub mailbox_capacity: u64,
 }
+
+/// The free public relay every install uses unless `[relay] url` is set. A
+/// test build can name a local stand-in at compile time (`BOGO_PUBLIC_RELAY`).
+pub const PUBLIC_RELAY: &str = match option_env!("BOGO_PUBLIC_RELAY") {
+    Some(url) => url,
+    None => "https://bogo.eilmer.si:8443",
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Apns {
@@ -382,20 +389,18 @@ impl Validator<'_> {
     fn config(&self, f: raw::File) -> Result<Config, ConfigError> {
         debug_assert_eq!(f.version, VERSION);
         let server = self.server(f.server)?;
-        let relay = f.relay.map(|r| self.relay(r)).transpose()?;
+        let relay = match f.relay {
+            Some(r) => self.relay(r)?,
+            None => Relay {
+                url: PUBLIC_RELAY.into(),
+            },
+        };
         let apns = f.apns.map(|a| self.apns(a)).transpose()?;
         let iphone = f.approvers.iphone.map(|i| self.iphone(i)).transpose()?;
-        if iphone.is_some() {
-            if relay.is_none() {
-                return Err(err(
-                    "[approvers.iphone] needs a [relay] section to reach the phone",
-                ));
-            }
-            if apns.is_none() && !cfg!(feature = "test-registration") {
-                return Err(err(
-                    "[approvers.iphone] needs an [apns] section to wake the phone",
-                ));
-            }
+        if iphone.is_some() && apns.is_none() && !cfg!(feature = "test-registration") {
+            return Err(err(
+                "[approvers.iphone] needs an [apns] section to wake the phone",
+            ));
         }
         let mut upstreams = BTreeMap::new();
         for (name, u) in f.upstreams {
@@ -549,22 +554,15 @@ impl Validator<'_> {
     }
 
     fn relay(&self, r: raw::Relay) -> Result<Relay, ConfigError> {
-        if !r.url.starts_with("https://") || r.url.len() <= "https://".len() {
+        let url = r.url.strip_suffix('/').unwrap_or(&r.url);
+        let host = url.strip_prefix("https://").unwrap_or_default();
+        if host.is_empty() || host.contains(['/', '@', '?', '#', ' ']) {
             return Err(err(format!(
-                "[relay] url = {:?} must be an https:// URL",
+                "[relay] url = {:?} must be https://host or https://host:port",
                 r.url
             )));
         }
-        let max_message_age = owner_sets_duration(r.max_message_age, "[relay] max_message_age")?;
-        let mailbox_capacity = r.mailbox_capacity
-            .and_then(|v| u64::try_from(v).ok())
-            .filter(|v| *v > 0)
-            .ok_or_else(|| err("[relay] mailbox_capacity is not set or is not positive; BOGO will not start until it is set"))?;
-        Ok(Relay {
-            url: r.url,
-            max_message_age,
-            mailbox_capacity,
-        })
+        Ok(Relay { url: url.into() })
     }
 
     fn apns(&self, a: raw::Apns) -> Result<Apns, ConfigError> {

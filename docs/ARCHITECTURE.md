@@ -90,7 +90,7 @@ How the parts talk:
 | `bogo-daemon` | Rust | Wiring: the effects shell (output → log → effect), the core clock, the control socket, startup and shutdown | All daemon crates | Apple Bridge anything |
 | `bogo` (bin) | Rust | The CLI and `bogo serve` | `bogo-daemon`, `clap` | — |
 | `bogo-shim` (bin) | Rust | stdio ↔ Streamable HTTP forwarder that never re-encodes, one BOGO session per process, the liveness stream | `reqwest`, `tokio`, `bogo-json` (read-only) | rmcp, every other BOGO crate |
-| `bogo-relay` (bin) | Rust | Relay service: mailboxes, allowlists, registration lobby, SQLite, TLS | `bogo-relay-proto`, `axum`, `rusqlite`, `rustls` | Every daemon crate, the Apple Bridge relay |
+| `bogo-relay` (bin) | Rust | Relay service: mailboxes, allowlists, pairing rooms, SQLite, optional TLS | `bogo-relay-proto`, `axum`, `rusqlite`, `rustls` | Every daemon crate, the Apple Bridge relay |
 | `bogo-standin` (bin) | Rust | Stand-in for BOGO while the phone is built: real registration, relay and push; sends requests from Lean vectors; prints verified decisions | `bogo-approver-iphone`, `bogo-state`, `bogo-verify` | Front, upstreams, the core thread |
 | `bogo-bypass` (bin) | Rust (Linux) | The bypass test suite the spec asks for, run inside the sandbox | `rmcp` (client), `reqwest` | Every BOGO internal crate |
 | `sandbox/` | Compose + nftables | The reference setup: internal network, namespace holder with default-deny rules, fixed TCP forwarder, agent service | Docker | Home-directory mounts, the Docker socket |
@@ -568,12 +568,12 @@ Envelope := "BOGOE2E" 0x00 | u8 version=1 | u8 direction | u8 type | 16 bytes ms
 - APNs is only a wake-up, never the queue. Apple can coalesce or drop notifications, and Apple Bridge shares the bundle, so its pushes can displace BOGO's ([sending notification requests](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns)). The relay mailbox is what the phone trusts. It fetches on launch, on foreground and on any push.
 - Pushes are retried until APNs accepts them. The mailbox copy is retried until `seen`. The APNs host follows the environment the phone reported. Provider tokens are ES256, cached and refreshed within Apple's limits ([token auth](https://developer.apple.com/documentation/usernotifications/establishing-a-token-based-connection-to-apns)).
 
-**Registration (numeric comparison).** This follows the commitment scheme of Bluetooth LE Secure Connections numeric comparison, so a man in the middle gets one guess at a 6-digit code ([Bluetooth numeric comparison](https://www.bluetooth.com/blog/bluetooth-pairing-part-4/)).
-1. `bogo approver add "Johan iPhone"` creates an ephemeral X25519 `eM`, posts a lobby offer `{offerId, ePubM, macLabel}` to the relay, and refreshes it while the command runs.
-2. BOGO → Macs → Add Mac lists the open offers by label and age. The phone picks one, creates `eP` and sends `ePubP`. The Mac accepts exactly one peer per offer.
+**Registration (numeric comparison, found nearby).** This follows the commitment scheme of Bluetooth LE Secure Connections numeric comparison, so a man in the middle gets one guess at a 6-digit code ([Bluetooth numeric comparison](https://www.bluetooth.com/blog/bluetooth-pairing-part-4/)). Like a Bluetooth device, a waiting Mac is found nearby, not in a public list: it shows itself on its local network with Bonjour. Like [croc](https://github.com/schollz/croc), one secret names a two-seat relay room and keys everything said in it, so the relay, which never sees the secret, reads nothing and lists nothing.
+1. `bogo approver add "Johan iPhone"` creates a 120-bit secret `s`, an ephemeral X25519 `eM`, and opens the relay room `room = SHA-256("bogo-pair-room/v1" ‖ s)[0..16]`, refreshing it while the command runs, and posts `macOffer {ePubM}` there. The command, run from a terminal (which macOS lets use the local network), then advertises a Bonjour service `_bogo-pair._tcp` named after the Mac, whose TXT record `c=` holds the pairing code `bogo1-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx`, plus `@host[:port]` when the Mac uses its own relay. Anyone on the network can read the advert, so the code proves nothing; the digits in step 5 do.
+2. BOGO → Macs → Add Mac lists the adverts on the phone's network by name. The owner taps their Mac; the phone derives the room from the code and joins it, and the relay gives the room one seat besides its owner. Every room message is sealed with ChaCha20-Poly1305 under `HKDF(s, "bogo-pair-key/v1")`. The phone creates `eP` and sends `ePubP`. The Mac accepts exactly one peer per room, and withdraws the advert.
 3. The Mac sends the commitment `Cm = SHA-256("bogo-reg-commit" ‖ ePubM ‖ ePubP ‖ Nm)`, where `Nm` is 16 random bytes.
 4. The phone sends `Np`, a fresh 16 random bytes. The Mac reveals `Nm`, and the phone checks `Cm`. Both reject an all-zero shared secret.
-5. Both compute `code = u64be(SHA-256("bogo-reg-code" ‖ ePubM ‖ ePubP ‖ Nm ‖ Np)[0..8]) mod 10^6` (bias below 2^-44) and show it as `382 917`. After that, all registration traffic is sealed under `K = HKDF(X25519(eM, eP), transcriptHash)`, with a unique ID for each phase.
+5. Both compute `code = u64be(SHA-256("bogo-reg-code" ‖ ePubM ‖ ePubP ‖ Nm ‖ Np)[0..8]) mod 10^6` (bias below 2^-44) and show it as `382 917`. After that, all registration traffic is also sealed under `K = HKDF(X25519(eM, eP), transcriptHash)`, with a unique ID for each phase, where the transcript's offer ID is the room ID.
 6. The owner confirms on the Mac. Sealed under `K`, the Mac sends `macConfirmed {macE2E.pub, macRelay.pub, bogoId, macName, challenge}`, where `challenge` is 32 fresh bytes. Only then does the phone enable Confirm. `txId = SHA-256(transcriptHash)`. A mismatch or an abort on either side ends the attempt, and the owner starts again.
 7. The owner confirms on the phone with Face ID. That one `LAContext` evaluation creates the Secure Enclave key and signs `"BOGO-REG\x00v1" ‖ transcriptHash ‖ challenge` as proof of possession. The phone then:
    - creates `phoneE2E` and `phoneRelay`,
@@ -592,8 +592,8 @@ Envelope := "BOGOE2E" 0x00 | u8 version=1 | u8 direction | u8 type | 16 bytes ms
    - **Environment** (from the AAGUID) against `[approvers.iphone] app_attest`. The default `["production"]` accepts TestFlight or App Store builds; the two can't be told apart without the extension map. `"development"` is accepted only if the owner lists it.
    - **The proof-of-possession signature.**
 
-   On success the Mac appends `approver_registered` and waits until it is durable, then updates its mailbox allowlist. Only then does it answer `registered {txId, approverId}`, on the lobby channel and as an envelope in the phone's mailbox.
-9. The phone marks the registration active only when `registered` with its `txId` arrives. The lobby offer is then deleted.
+   On success the Mac appends `approver_registered` and waits until it is durable, then updates its mailbox allowlist. Only then does it answer `registered {txId, approverId}`, in the room and as an envelope in the phone's mailbox.
+9. The phone marks the registration active only when `registered` with its `txId` arrives. The room is then closed.
 
 **Interrupted registration.**
 - Before the Mac commits, nothing is registered. The phone's pending entry shows "Not confirmed by the Mac", and the owner can discard it. Discarding deletes the approval key at once and queues `removed` under the pending channel keys, in case the Mac did commit. A Mac that never committed can't open it. One that did revokes the record.
@@ -601,7 +601,8 @@ Envelope := "BOGOE2E" 0x00 | u8 version=1 | u8 direction | u8 type | 16 bytes ms
 
 ### 3.12 Relay (`bogo-relay`)
 
-- **Deployment.** On the VPS, completely separate from Apple Bridge's relay:
+- **Public by default, self-hostable.** Every install uses the public relay below unless `[relay] url` names another; the waiting Mac's local advert carries that relay to the phone. `bogo-relay` runs with no flags (plain HTTP behind an HTTPS proxy, tunnel or cloud service) or with `--cert/--key`; [self-hosting](self-hosting-relay.md) has the one-command setups. Sign-ins are bound to the relay's own name (`--service`), which only a loopback relay behind a tunnel or proxy may take from the request's Host.
+- **Deployment of the public relay.** On the VPS, completely separate from Apple Bridge's relay:
   - its own systemd unit `bogo-relay.service` and its own port, chosen by the owner (§11),
   - its own SQLite file (WAL, `synchronous=FULL`) and its own firewall rule,
   - TLS with `rustls`, using a Let's Encrypt certificate that `lego` obtains through Cloudflare DNS-01 with a token scoped to `eilmer.si`. The token lives outside the relay's application state, and the certificate reloads on a renew hook.
@@ -616,8 +617,8 @@ Envelope := "BOGOE2E" 0x00 | u8 version=1 | u8 direction | u8 type | 16 bytes ms
   POST /v1/fetch {wait:true}           → [{msg_id, from, body}]   (long-poll)
   POST /v1/ack {msg_ids}               (recipient deletes)
   POST /v1/retract {to, msg_ids}       (sender deletes its own undelivered messages)
-  POST /v1/lobby/offer | GET /v1/lobby | POST /v1/lobby/{id}/msg | POST /v1/lobby/{id}/fetch
-                                       (registration only; in memory; offers vanish unless refreshed)
+  POST /v1/room/open | /v1/room/send | /v1/room/fetch | /v1/room/close {room, …}
+                                       (registration only; in memory; never listed; rooms vanish unless refreshed)
   ```
 
 - **Rules it keeps:**
@@ -796,7 +797,7 @@ bogo serve                                 # daemon entry point that launchd run
 
 **S7. Phone offline.** The envelope waits in the relay, and the hub keeps retrying until `seen`. When the phone reconnects, it fetches, stores, and shows the request in the Inbox. The owner can still decide it while the session is alive.
 
-**S8. Adding the phone.** As in §3.11: commitment, the six digits, Mac confirmation first, then Face ID creating and proving the key, then App Attest. The Mac commits before it answers, and a lost answer is recovered. `bogo approver list` shows the approver with its App Attest environment, category and bundle version.
+**S8. Adding the phone.** As in §3.11: the phone lists the Mac waiting on its network, the sealed room exchange and commitment, the 6 digits compared and confirmed on the Mac, then Face ID creating and proving the key, then App Attest. The Mac commits before it answers, and a lost answer is recovered. `bogo approver list` shows the approver with its App Attest environment, category and bundle version.
 
 **S9. Adding an agent.** `bogo agent add "Trip planner"` logs `agent_added` with the token's hash and prints the token once. Requests then carry agentName "Trip planner". A request without a valid token gets 401.
 
@@ -1048,7 +1049,7 @@ Crate versions other than rmcp are pinned in `Cargo.lock` when work starts. None
 | **Link CLI behaviour** | It may ask for interactive input (refused), and some flows have no testmode. | List its tools, log in once with `LINK_AUTH_FILE` under `~/.bogo`, and run a testmode spend request through BOGO. |
 | **Outcome classification** | A crash right after `authorized` shows as "unknown" even if nothing was sent. That is honest, but imprecise. | Inspect History after a forced daemon kill. |
 | **Log anchor** | Someone with file access could replace the whole chain. Mac compromise is out of scope. | State this in the threat model; owner exports can anchor a comparison. |
-| **Global relay lobby** | Junk offers could clutter Add Mac. Numeric comparison keeps it secure. | Watch the lobby. Each offer shows a label and age. |
+| **Public relay** | Anyone can use the public relay, so a flood of rooms or mailboxes could slow pairing for everyone. It still sees only ciphertext, and each owner holds at most four rooms. | Watch the relay's memory and room refusals (429); anyone affected can self-host with one command. |
 
 ## 11. Questions for the user
 

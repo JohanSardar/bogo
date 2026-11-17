@@ -115,10 +115,9 @@ policy = "approve"
 hide_denied = true
 # max_pending = OWNER_SETS_INTEGER
 # Add upstreams with `bogo upstream add` or edit this file.
+# BOGO uses the free public relay. To use your own, see docs/self-hosting-relay.md:
 # [relay]
-# url = "https://bogo.eilmer.si:8443"
-# max_message_age = "OWNER_SETS_DURATION"
-# mailbox_capacity = OWNER_SETS_INTEGER
+# url = "https://relay.example.com"
 # [apns]
 # key = { secret = "apns_p8" }
 # key_id = "OWNER_SETS"
@@ -491,6 +490,9 @@ pub async fn request(root: &Path, c: Command) -> Result<Value> {
         .await
         .map_err(error)?;
     let mut result_bytes = Vec::new();
+    // The registering Mac's local-network advert. This process shows it, not
+    // the daemon: a command run from a terminal may use the local network.
+    let mut _advert: Option<tokio::process::Child> = None;
     loop {
         let v: Value = serde_json::from_str(&line(&mut r).await?).map_err(error)?;
         if let Some(chunk) = v.get("result_chunk").and_then(Value::as_str) {
@@ -504,8 +506,18 @@ pub async fn request(root: &Path, c: Command) -> Result<Value> {
             eprintln!("{s}");
             continue;
         }
+        if let Some(n) = v.get("advertise") {
+            _advert = None;
+            if let Some(n) = nearby(n) {
+                match bogo_approver_iphone::bonjour::advertise(&n) {
+                    Ok(child) => _advert = Some(child),
+                    Err(e) => eprintln!("Could not show this Mac on the local network: {e}"),
+                }
+            }
+            continue;
+        }
         if let Some(code) = v.get("confirm_code").and_then(Value::as_str) {
-            eprint!("Does the approver show {code}? [y/N] ");
+            eprint!("Does the iPhone show {code}? [y/N] ");
             std::io::stderr().flush().map_err(error)?;
             let answer = tokio::task::spawn_blocking(|| {
                 let mut s = String::new();
@@ -572,6 +584,22 @@ impl OwnerPrompt for RemotePrompt {
             .and_then(|s| serde_json::from_str::<Value>(&s).ok())
             .is_some_and(|v| v["confirmed"] == true)
     }
+    async fn advertise(&self, n: Option<&a::Nearby>) {
+        let v = n.map(|n| json!({"service":n.service,"name":n.name,"txt":n.txt}));
+        let _ = self.send(json!({ "advertise": v })).await;
+    }
+}
+fn nearby(v: &Value) -> Option<a::Nearby> {
+    Some(a::Nearby {
+        service: v.get("service")?.as_str()?.into(),
+        name: v.get("name")?.as_str()?.into(),
+        txt: v
+            .get("txt")?
+            .as_array()?
+            .iter()
+            .map(|t| t.as_str().map(str::to_owned))
+            .collect::<Option<_>>()?,
+    })
 }
 impl Shell {
     async fn commit_approver(
@@ -945,7 +973,7 @@ pub async fn serve(root: &Path) -> Result<()> {
         soft
     };
     if let Some(iphone) = &config.iphone {
-        let relay = config.relay.as_ref().ok_or("iPhone requires relay")?;
+        let relay = &config.relay;
         let relay_url = url::Url::parse(&relay.url).map_err(|_| "invalid relay URL")?;
         let apns = config
             .apns
@@ -966,8 +994,15 @@ pub async fn serve(root: &Path) -> Result<()> {
         let route = bogo_approver_iphone::IphoneRoute::new(
             bogo_approver_iphone::Config {
                 relay_url: relay.url.clone(),
-                relay_service: relay_url[url::Position::BeforeHost..url::Position::AfterPort]
-                    .into(),
+                public_relay_url: bogo_config::PUBLIC_RELAY.into(),
+                // host:port, the port always written, as the phone and relay do.
+                relay_service: format!(
+                    "{}:{}",
+                    relay_url.host_str().ok_or("invalid relay URL")?,
+                    relay_url
+                        .port_or_known_default()
+                        .ok_or("invalid relay URL")?
+                ),
                 relay_root_pem: std::env::var_os("BOGO_RELAY_CA")
                     .map(std::fs::read)
                     .transpose()

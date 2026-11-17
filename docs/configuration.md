@@ -28,7 +28,7 @@ max_pending = 4
 `version`, `[server]`, `server.port`, and `[defaults]` are required.
 `max_pending` deliberately ships unset; choose it before starting. `upstreams`,
 `tools`, `agents` and `approvers` default to empty maps/tables. `relay`, `apns`
-and `approvers.iphone` are optional. No `[approvers.soft]` table exists: register
+and `approvers.iphone` are optional; without `relay`, BOGO uses the public relay. No `[approvers.soft]` table exists: register
 software approvers with the CLI in a `test-approvers` build only.
 
 ## Server and defaults
@@ -287,9 +287,8 @@ restricted for one named agent without duplicating its display settings.
 
 | Key | Meaning | Refused values |
 |---|---|---|
-| `relay.url` | BOGO relay HTTPS base URL; no default. | Missing, non-string, lacks `https://`, or exactly `https://`. Parser checks prefix/length; iPhone route later parses and validates the URL/TLS. |
-| `relay.max_message_age` | Positive retention duration, explicitly required if relay table exists. Not request expiry. | Missing/invalid/zero duration. |
-| `relay.mailbox_capacity` | Positive TOML integer, explicitly required if relay table exists. | Missing, non-integer, zero, negative. Upper bound is TOML's signed 64-bit integer maximum. |
+| `relay.url` | Your own relay, `https://host` or `https://host:port`. Without a `[relay]` table BOGO uses the free public relay, `https://bogo.eilmer.si:8443`. A waiting Mac tells the phone a non-public relay's address, so the phone needs no setting. See [self-hosting](self-hosting-relay.md). | Missing (when the table exists), non-string, not `https://`, empty host, or a path, query, fragment or user part. |
+| `relay.max_message_age`, `relay.mailbox_capacity` | Ignored; accepted so older files still load. Retention and capacity are `bogo-relay` flags. | Nothing. |
 | `apns.key` | Required `{ secret = "NAME" }`; route needs a path secret naming the APNs `.p8` file. | Missing/malformed/unknown reference. Config parser accepts a value secret, but daemon rejects it when constructing the iPhone route. |
 | `apns.key_id` | APNs signing key ID; required nonblank string. | Missing, blank, non-string. No ID-shape check in config parser. |
 | `apns.team_id` | APNs team ID; required nonblank string. | Same as key_id. |
@@ -298,16 +297,12 @@ restricted for one named agent without duplicating its display settings.
 | `approvers.iphone.app_attest` | Required nonempty list of `"production"` and/or `"development"`. Production accepts Apple's TestFlight/App Store categories. Enable development only deliberately. | Empty/missing list, duplicate environments, unknown spelling, non-string elements. |
 | `approvers.iphone.approve_arm_delay` | Positive duration before Approve is enabled on review; explicit owner choice. | Missing/invalid/zero duration. |
 
-An iPhone section requires relay and APNs sections. Only a build with
+An iPhone section requires an APNs section. Only a build with
 `test-registration` may omit APNs and register without App Attest. Present
 attestation is still verified. `test-approvers` independently enables software
 approval and its verifier; neither feature belongs in a production build.
 
-The retention/capacity settings validate the owner's choices; they do not
-configure the standalone relay remotely. Supply matching explicit
-`--max-message-age SECONDS` and `--mailbox-capacity N` to `bogo-relay`.
-Deployment and hardware/push checks are outstanding; see
-[RELAY-PROTOCOL.md](RELAY-PROTOCOL.md) and [verification](verification/daemon-cli.md).
+The relay's wire contract is in [RELAY-PROTOCOL.md](RELAY-PROTOCOL.md).
 
 ## `secrets.toml`
 
@@ -354,7 +349,7 @@ configuration outside the agent's editable project when using a sandbox.
 | `BOGO_URL`, `BOGO_AGENT_TOKEN` | Required by the stdio shim: MCP URL and named agent token. |
 | `BOGO_APP_BUNDLE_VERSIONS` | Optional comma-separated App Attest build numbers, trimmed. Real attestations carry no build number, so the list is used only if Apple includes one; unset means none would be accepted then. |
 | `BOGO_RELAY_CA` | Optional PEM file adding trust for a private relay; normal TLS hostname checking stays enabled. |
-| `BOGO_MAC_NAME` | Optional registration label; defaults to `BOGO Mac`. |
+| `BOGO_MAC_NAME` | Optional name the phone shows for this Mac; defaults to `BOGO Mac`. |
 | `BOGO_LAKE`, `BOGO_LEAN` | Build-only overrides for the actual lake/lean executable paths. Normally use elan on PATH and the pinned toolchain. |
 
 `bogo start` copies PATH and the three iPhone settings into its user LaunchAgent

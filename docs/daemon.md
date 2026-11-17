@@ -68,11 +68,12 @@ upstreams keep their cached tools discoverable; calls are not sent.
 
 ## Approvers
 
-Configure `[relay]`, `[apns]` and `[approvers.iphone]` following the architecture.
-`max_message_age`, `mailbox_capacity` and `approve_arm_delay` have no shipped
-values. Set them deliberately. The standalone relay also requires explicit
-`--max-message-age` and `--mailbox-capacity`; its values must match the owner's
-deployment settings. The daemon does not administer the relay remotely.
+Configure `[apns]` and `[approvers.iphone]` following the architecture.
+`approve_arm_delay` has no shipped value. Set it deliberately. The relay needs
+no setting: BOGO uses the free public relay unless `[relay] url` names your own
+([self-hosting](self-hosting-relay.md)). Retention and mailbox size are the
+relay's own flags; older `[relay]` tables that still set `max_message_age` or
+`mailbox_capacity` load, and those keys are ignored.
 
 Put the APNs key under BOGO's private directory and refer to it with a path
 secret in `secrets.toml`. `BOGO_APP_BUNDLE_VERSIONS` (comma-separated build
@@ -88,8 +89,12 @@ bogo approver list
 bogo approver revoke 'Johan iPhone'
 ```
 
-Compare the numeric code with the phone and confirm in the terminal. Reusing a
-name registers a new key and revokes the old approver. Every completed registration
+While `approver add` runs, the Mac shows up in BOGO → Macs → Add Mac on any
+iPhone on the same network. Tap it, check that the terminal and the phone show
+the same 6 digits, answer `y` in the terminal, then confirm on the phone with
+Face ID. A mismatch or a "no" on either side registers nothing. The command,
+not the daemon, shows the Mac on the network, so run it from a terminal.
+Reusing a name registers a new key and revokes the old approver. Every completed registration
 and revocation enters the audit log before it affects requests. Registry caches
 are never used as authority by the daemon.
 
@@ -107,7 +112,7 @@ bogo soft 'Soft A' FULL_REQUEST_ID --deny --note 'wrong amount'
 is in the production daemon's dependency graph. Test seeds stay in
 `secrets.toml`. `test-registration` allows the existing simulator registration
 path without App Attest or APNs credentials; the production build requires both.
-An arm delay and relay limits are still required whenever the iPhone route is
+An arm delay is still required whenever the iPhone route is
 configured. A software route never counts as Face ID or hardware-backed approval.
 
 ## Owner operations and recovery

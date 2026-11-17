@@ -1,9 +1,9 @@
 //! Standalone ciphertext mailbox. No daemon, E2E or APNs dependencies.
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Path, State},
-    http::{HeaderMap, StatusCode},
-    routing::{delete, get, post},
+    extract::{DefaultBodyLimit, State},
+    http::{HeaderMap, StatusCode, Uri, header},
+    routing::post,
 };
 use bogo_relay_proto::*;
 use clap::Parser;
@@ -16,42 +16,50 @@ use std::{
 };
 use tokio::sync::watch;
 
+/// Every flag has a default, so `bogo-relay` alone serves plain HTTP on
+/// 127.0.0.1:8080 for an HTTPS proxy, tunnel or cloud service in front.
+/// With `--cert` and `--key` it serves HTTPS itself.
 #[derive(Parser)]
+#[command(version, about)]
 struct Args {
-    #[arg(long, default_value = "127.0.0.1:8843")]
+    #[arg(long, default_value = "127.0.0.1:8080")]
     listen: std::net::SocketAddr,
-    #[arg(long)]
+    #[arg(long, default_value = "bogo-relay.sqlite")]
     database: PathBuf,
-    #[arg(long)]
-    cert: PathBuf,
-    #[arg(long)]
-    key: PathBuf,
-    /// Public identity bound into every mailbox challenge (normally host:port).
-    #[arg(long)]
-    service: String,
-    /// Explicit retention; never interpreted as approval expiry.
-    #[arg(long)]
+    /// TLS certificate chain (PEM). Give it with --key to serve HTTPS directly.
+    #[arg(long, requires = "key")]
+    cert: Option<PathBuf>,
+    #[arg(long, requires = "cert")]
+    key: Option<PathBuf>,
+    /// The name clients reach this relay by (host:port); every sign-in is bound
+    /// to it. Required unless the relay listens on loopback behind a tunnel or
+    /// proxy that routes by the requested hostname (a Cloudflare quick tunnel);
+    /// then it is the request's Host.
+    #[arg(long, env = "BOGO_RELAY_SERVICE")]
+    service: Option<String>,
+    /// Seconds an undelivered message is kept; never an approval expiry.
+    #[arg(long, default_value_t = 30 * 24 * 3600)]
     max_message_age: u64,
-    #[arg(long)]
+    /// Messages one mailbox may hold.
+    #[arg(long, default_value_t = 1000)]
     mailbox_capacity: u64,
 }
-struct Lobby {
-    offer: Offer,
+/// A pairing room: its owner (the Mac) and the one other seat (the phone).
+struct PairRoom {
     owner: String,
     peer: Option<String>,
-    created: Instant,
     refreshed: Instant,
-    messages: Vec<LobbyMessage>,
+    messages: Vec<RoomMessage>,
 }
 struct Memory {
     challenges: HashMap<String, (String, Instant)>,
     sessions: HashMap<String, (String, Instant)>,
-    lobby: HashMap<String, Lobby>,
+    rooms: HashMap<String, PairRoom>,
 }
 struct App {
     db: Mutex<Connection>,
     memory: Mutex<Memory>,
-    service: String,
+    service: Option<String>,
     max_age: u64,
     capacity: u64,
     changed: watch::Sender<u64>,
@@ -87,10 +95,43 @@ fn owner(app: &App, headers: &HeaderMap) -> Result<String> {
 fn valid_ids(ids: &[String]) -> bool {
     ids.len() <= 1000 && ids.iter().all(|s| valid_hex(s, 16))
 }
+/// Rooms close 120 s after their owner's last refresh.
+const ROOM_LIFE: Duration = Duration::from_secs(120);
+const ROOMS: usize = 1024;
+const ROOMS_PER_OWNER: usize = 4;
+const ROOM_MESSAGES: usize = 16;
 fn prune(m: &mut Memory) {
     let now = Instant::now();
-    m.lobby
-        .retain(|_, l| now.duration_since(l.refreshed) < Duration::from_secs(120));
+    m.rooms
+        .retain(|_, r| now.duration_since(r.refreshed) < ROOM_LIFE);
+}
+/// The identity a sign-in is bound to: `--service`, or on loopback the host the
+/// tunnel or proxy in front routed here. A relay that forwards someone else's
+/// challenge cannot use the answer, because the client signs the host it meant
+/// to reach and nothing in front of this relay routes that host here.
+fn service(app: &App, headers: &HeaderMap, uri: &Uri) -> Option<String> {
+    if let Some(s) = &app.service {
+        return Some(s.clone());
+    }
+    let host = headers
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .or_else(|| uri.authority().map(|a| a.as_str()))?
+        .to_ascii_lowercase();
+    if host.is_empty() || host.contains(['/', '@', ' ']) {
+        return None;
+    }
+    // Clients only speak HTTPS, so a host without a port means 443.
+    let has_port = host.rsplit_once(':').is_some_and(|(h, p)| {
+        !p.is_empty()
+            && p.bytes().all(|b| b.is_ascii_digit())
+            && (!h.starts_with('[') || h.ends_with(']'))
+    });
+    Some(if has_port {
+        host
+    } else {
+        format!("{host}:443")
+    })
 }
 
 async fn challenge(
@@ -116,7 +157,13 @@ async fn challenge(
     );
     Ok(Json(Challenge { challenge }))
 }
-async fn verify(State(app): State<Shared>, Json(req): Json<VerifyRequest>) -> Result<Json<Token>> {
+async fn verify(
+    State(app): State<Shared>,
+    headers: HeaderMap,
+    uri: Uri,
+    Json(req): Json<VerifyRequest>,
+) -> Result<Json<Token>> {
+    let service = service(&app, &headers, &uri).ok_or(StatusCode::BAD_REQUEST)?;
     let mut m = app
         .memory
         .lock()
@@ -129,8 +176,8 @@ async fn verify(State(app): State<Shared>, Json(req): Json<VerifyRequest>) -> Re
     if Instant::now() >= until {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    let id = verify_auth(&app.service, &req.r#pub, &challenge, &req.sig)
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let id =
+        verify_auth(&service, &req.r#pub, &challenge, &req.sig).ok_or(StatusCode::UNAUTHORIZED)?;
     m.sessions.retain(|_, (_, until)| *until > Instant::now());
     if m.sessions.len() >= 4096 {
         return Err(StatusCode::TOO_MANY_REQUESTS);
@@ -327,17 +374,13 @@ async fn retract(
     internal(tx.commit())?;
     Ok(StatusCode::OK)
 }
-async fn offer(
+async fn room_open(
     State(app): State<Shared>,
     headers: HeaderMap,
-    Json(req): Json<Offer>,
+    Json(req): Json<Room>,
 ) -> Result<StatusCode> {
     let id = owner(&app, &headers)?;
-    if !valid_hex(&req.offer_id, 16)
-        || !valid_hex(&req.e_pub_m, 32)
-        || req.mac_label.is_empty()
-        || req.mac_label.len() > 128
-    {
+    if !valid_hex(&req.room, 16) {
         return Err(StatusCode::BAD_REQUEST);
     }
     let mut m = app
@@ -345,55 +388,50 @@ async fn offer(
         .lock()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     prune(&mut m);
-    if let Some(l) = m.lobby.get_mut(&req.offer_id) {
-        if l.owner != id {
+    if let Some(r) = m.rooms.get_mut(&req.room) {
+        if r.owner != id {
             return Err(StatusCode::FORBIDDEN);
         }
-        if l.offer.e_pub_m != req.e_pub_m || l.offer.mac_label != req.mac_label {
-            return Err(StatusCode::CONFLICT);
-        }
-        l.refreshed = Instant::now();
-    } else {
-        if m.lobby.len() >= 256 {
-            return Err(StatusCode::TOO_MANY_REQUESTS);
-        }
-        m.lobby.insert(
-            req.offer_id.clone(),
-            Lobby {
-                offer: req,
-                owner: id,
-                peer: None,
-                created: Instant::now(),
-                refreshed: Instant::now(),
-                messages: Vec::new(),
-            },
-        );
+        r.refreshed = Instant::now();
+        return Ok(StatusCode::OK);
     }
+    if m.rooms.len() >= ROOMS
+        || m.rooms.values().filter(|r| r.owner == id).count() >= ROOMS_PER_OWNER
+    {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+    m.rooms.insert(
+        req.room,
+        PairRoom {
+            owner: id,
+            peer: None,
+            refreshed: Instant::now(),
+            messages: Vec::new(),
+        },
+    );
     Ok(StatusCode::OK)
 }
-async fn offers(State(app): State<Shared>, headers: HeaderMap) -> Result<Json<Vec<ListedOffer>>> {
-    owner(&app, &headers)?;
-    let mut m = app
-        .memory
-        .lock()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    prune(&mut m);
-    Ok(Json(
-        m.lobby
-            .values()
-            .filter(|l| l.peer.is_none())
-            .map(|l| ListedOffer {
-                offer: l.offer.clone(),
-                age_seconds: l.created.elapsed().as_secs(),
-            })
-            .collect(),
-    ))
+/// Look a room up for `id`: its owner, or the one other seat, which the first
+/// other mailbox to use the room takes. Anyone else is refused.
+fn seat<'a>(m: &'a mut Memory, room: &str, id: &str) -> Result<&'a mut PairRoom> {
+    if !valid_hex(room, 16) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    prune(m);
+    let r = m.rooms.get_mut(room).ok_or(StatusCode::NOT_FOUND)?;
+    if r.owner != id {
+        match &r.peer {
+            Some(p) if p != id => return Err(StatusCode::FORBIDDEN),
+            Some(_) => {}
+            None => r.peer = Some(id.into()),
+        }
+    }
+    Ok(r)
 }
-async fn lobby_send(
+async fn room_send(
     State(app): State<Shared>,
     headers: HeaderMap,
-    Path(offer_id): Path<String>,
-    Json(req): Json<LobbySend>,
+    Json(req): Json<RoomSend>,
 ) -> Result<StatusCode> {
     let id = owner(&app, &headers)?;
     if !valid_hex(&req.msg_id, 16)
@@ -406,72 +444,62 @@ async fn lobby_send(
         .memory
         .lock()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    prune(&mut m);
-    let l = m.lobby.get_mut(&offer_id).ok_or(StatusCode::NOT_FOUND)?;
-    if l.owner != id {
-        if l.peer.as_ref().is_some_and(|p| p != &id) {
-            return Err(StatusCode::FORBIDDEN);
-        }
-        if l.peer.is_none() {
-            l.peer = Some(id.clone());
-        }
-    }
-    if let Some(old) = l.messages.iter().find(|m| m.msg_id == req.msg_id) {
+    let r = seat(&mut m, &req.room, &id)?;
+    if let Some(old) = r.messages.iter().find(|m| m.msg_id == req.msg_id) {
         return if old.from == id && old.body == req.body {
             Ok(StatusCode::OK)
         } else {
             Err(StatusCode::CONFLICT)
         };
     }
-    if l.messages.len() >= 64 {
+    if r.messages.len() >= ROOM_MESSAGES {
         return Err(StatusCode::CONFLICT);
     }
-    l.messages.push(LobbyMessage {
+    r.messages.push(RoomMessage {
         msg_id: req.msg_id,
         from: id,
         body: req.body,
     });
     Ok(StatusCode::OK)
 }
-async fn lobby_fetch(
+async fn room_fetch(
     State(app): State<Shared>,
     headers: HeaderMap,
-    Path(offer_id): Path<String>,
-) -> Result<Json<Vec<LobbyMessage>>> {
+    Json(req): Json<Room>,
+) -> Result<Json<Vec<RoomMessage>>> {
     let id = owner(&app, &headers)?;
     let mut m = app
         .memory
         .lock()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    prune(&mut m);
-    let l = m.lobby.get(&offer_id).ok_or(StatusCode::NOT_FOUND)?;
-    if id != l.owner && l.peer.as_ref() != Some(&id) {
-        return Err(StatusCode::FORBIDDEN);
-    }
+    let r = seat(&mut m, &req.room, &id)?;
     Ok(Json(
-        l.messages
+        r.messages
             .iter()
             .filter(|m| m.from != id)
             .cloned()
             .collect(),
     ))
 }
-async fn delete_offer(
+async fn room_close(
     State(app): State<Shared>,
     headers: HeaderMap,
-    Path(offer_id): Path<String>,
+    Json(req): Json<Room>,
 ) -> Result<StatusCode> {
     let id = owner(&app, &headers)?;
     let mut m = app
         .memory
         .lock()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    prune(&mut m);
-    let l = m.lobby.get(&offer_id).ok_or(StatusCode::NOT_FOUND)?;
-    if id != l.owner {
-        return Err(StatusCode::FORBIDDEN);
+    if !valid_hex(&req.room, 16) {
+        return Err(StatusCode::BAD_REQUEST);
     }
-    m.lobby.remove(&offer_id);
+    match m.rooms.get(&req.room) {
+        None => return Err(StatusCode::NOT_FOUND),
+        Some(r) if r.owner != id => return Err(StatusCode::FORBIDDEN),
+        Some(_) => {}
+    }
+    m.rooms.remove(&req.room);
     Ok(StatusCode::OK)
 }
 
@@ -484,35 +512,18 @@ async fn main() {
 }
 async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    if args.service.is_empty()
+    if args.service.as_ref().is_some_and(String::is_empty)
         || args.max_message_age == 0
         || args.max_message_age > i64::MAX as u64
         || args.mailbox_capacity == 0
     {
         return Err("invalid limits".into());
     }
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .map_err(|_| "TLS provider")?;
-    let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(&args.cert, &args.key).await?;
-    // SIGHUP atomically reloads the configured cert/key after an external renew hook.
-    #[cfg(unix)]
-    {
-        let tls = tls.clone();
-        let cert = args.cert.clone();
-        let key = args.key.clone();
-        tokio::spawn(async move {
-            let Ok(mut signal) =
-                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
-            else {
-                return;
-            };
-            while signal.recv().await.is_some() {
-                if tls.reload_from_pem_file(&cert, &key).await.is_err() {
-                    eprintln!("bogo-relay: certificate reload failed");
-                }
-            }
-        });
+    if args.service.is_none() && (args.cert.is_some() || !args.listen.ip().is_loopback()) {
+        eprintln!(
+            "bogo-relay: give --service host:port (or BOGO_RELAY_SERVICE), the name clients reach this relay by; only a relay on loopback behind a tunnel or proxy can go without it"
+        );
+        return Err("no service".into());
     }
     let db = Connection::open(&args.database)?;
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
@@ -523,7 +534,7 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
         memory: Mutex::new(Memory {
             challenges: HashMap::new(),
             sessions: HashMap::new(),
-            lobby: HashMap::new(),
+            rooms: HashMap::new(),
         }),
         service: args.service,
         max_age: args.max_message_age,
@@ -538,13 +549,42 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .route("/v1/fetch", post(fetch))
         .route("/v1/ack", post(ack))
         .route("/v1/retract", post(retract))
-        .route("/v1/lobby/offer", post(offer))
-        .route("/v1/lobby", get(offers))
-        .route("/v1/lobby/{id}/msg", post(lobby_send))
-        .route("/v1/lobby/{id}/fetch", post(lobby_fetch))
-        .route("/v1/lobby/{id}", delete(delete_offer))
+        .route("/v1/room/open", post(room_open))
+        .route("/v1/room/send", post(room_send))
+        .route("/v1/room/fetch", post(room_fetch))
+        .route("/v1/room/close", post(room_close))
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024 + 4096))
         .with_state(app);
+    let (Some(cert), Some(key)) = (args.cert, args.key) else {
+        println!(
+            "bogo-relay listening with plain HTTP on {}; put HTTPS in front of it (a proxy, tunnel or cloud service)",
+            args.listen
+        );
+        let listener = tokio::net::TcpListener::bind(args.listen).await?;
+        axum::serve(listener, router).await?;
+        return Ok(());
+    };
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .map_err(|_| "TLS provider")?;
+    let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(&cert, &key).await?;
+    // SIGHUP atomically reloads the configured cert/key after an external renew hook.
+    #[cfg(unix)]
+    {
+        let tls = tls.clone();
+        tokio::spawn(async move {
+            let Ok(mut signal) =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
+            else {
+                return;
+            };
+            while signal.recv().await.is_some() {
+                if tls.reload_from_pem_file(&cert, &key).await.is_err() {
+                    eprintln!("bogo-relay: certificate reload failed");
+                }
+            }
+        });
+    }
     println!("bogo-relay listening with TLS on {}", args.listen);
     axum_server::bind_rustls(args.listen, tls)
         .serve(router.into_make_service())

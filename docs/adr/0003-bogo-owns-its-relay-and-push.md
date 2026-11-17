@@ -1,3 +1,7 @@
 # BOGO has its own relay and sends its own pushes
 
 BOGO does not use Apple Bridge's gateway or relay, even though the approver lives in the Apple Bridge iPhone app and that path already reaches the phone. It runs its own relay at `bogo.eilmer.si` on the same VPS, with its own port, service and state, and nothing shared with Apple Bridge's relay. BOGO on the Mac sends APNs pushes itself with the owner's existing key. The owner ruled out touching any Apple Bridge Mac part. Every decision is signed end to end, so the relay is trusted with nothing and only passes ciphertext along.
+
+Update (T21): because the relay is trusted with nothing, it is now a free public default that any install uses with no setting, as croc's and Happy's are. Anyone can run their own with one command and point BOGO at it with `[relay] url`. A pairing code, not a public list of waiting Macs, finds the right Mac: its secret names the relay room and seals what is said in it, and it carries the relay's address to the phone.
+
+Update (T26): the owner kept the 6-digit comparison instead of a code to scan or type. The relay still lists nothing: while `bogo approver add` runs, the Mac shows itself on its local network with Bonjour, and the advert carries the pairing code and relay address. The phone lists the Macs waiting on its network and the owner taps theirs; both screens show 6 digits, and the owner confirms on both. The digits, not the code, keep an impostor out, since anyone on the network can read the code.

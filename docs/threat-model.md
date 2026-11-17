@@ -58,10 +58,16 @@ The relay transports authenticated encrypted envelopes. With correct endpoint
 crypto and registration, watching or altering relay traffic cannot reveal
 request contents or forge an approval. The relay can observe addresses,
 mailbox/routing metadata, ciphertext sizes and timing, and can drop, delay,
-repeat or reorder deliveries. It can deny service. Registration lobby labels
-and public handshake data are not encrypted request contents. The owner must
-actually compare the six-digit registration codes; numeric comparison is not
-a substitute for doing that check. Push is only a generic wake-up with routing
+repeat or reorder deliveries. It can deny service. Registration happens in an
+unlisted relay room named by a hash of a pairing code's secret, and every
+room message is sealed with a key from that secret. The waiting Mac shows the
+code only in a Bonjour advert on its local network, never to the relay, so the
+relay sees no labels or handshake keys. Anyone on that network can read the
+advert, join the room first, or advertise a fake Mac under the same name; all
+of these are caught by the six digits, which the owner must actually compare
+on both screens and confirm on both devices. Numeric comparison is not a
+substitute for doing that check. Someone on the network can also keep the
+owner from pairing by taking the room's one seat first. Push is only a generic wake-up with routing
 IDs, not an approval or the request queue. Transport privacy also rests on
 crypto/library correctness, separate from the Lean decision theorem.
 

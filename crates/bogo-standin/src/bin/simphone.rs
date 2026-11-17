@@ -1,7 +1,8 @@
 //! `bogo-simphone`: the phone's half of BOGO's relay protocol, in test builds
-//! only. It stands in for BogoKit's `RelayMacLink`, which the app does not
-//! have yet, so the stand-in Mac can be exercised end to end through a real
-//! relay.
+//! only. It is a software phone that lists the Macs waiting on the local
+//! network, joins the one it is told to add, compares the six digits, and then
+//! talks to the Mac through its mailbox, so the Mac side can be exercised end
+//! to end through a real relay without the app.
 //!
 //! With `--app-data`, it bridges the iOS Simulator app: requests that arrive
 //! over the relay are handed to the app's Debug stand-in link (its `inbox/`
@@ -16,7 +17,7 @@
 //! Without `--app-data`, it is a whole software phone with its own key.
 use bogo_approver_iphone::wire::*;
 use bogo_e2e::{Direction, Header};
-use bogo_relay_proto::{Client, LobbySend, SigningKey};
+use bogo_relay_proto::{Client, RoomSend, SigningKey};
 use clap::Parser;
 use p256::ecdsa::signature::Signer;
 use serde::{Deserialize, Serialize};
@@ -747,91 +748,143 @@ fn app_key(app: &Path) -> Result<(p256::ecdsa::SigningKey, String), String> {
     ))
 }
 
-async fn lobby_wait(
-    client: &Client,
-    offer: &str,
-    offer_id: &[u8; 16],
-    want: u8,
-) -> Result<Vec<u8>, String> {
-    for _ in 0..2000 {
-        let msgs = match client.lobby_fetch(offer).await {
-            Err(bogo_relay_proto::Error::Status(404)) => {
-                return Err("the Mac closed the offer".into());
-            }
-            other => other.map_err(|e| e.to_string())?,
-        };
-        for m in msgs {
-            let Ok(body) = hex::decode(&m.body) else {
-                continue;
+/// The phone's seat in a pairing code's room; every message is sealed with the code.
+struct Seat<'a> {
+    client: &'a Client,
+    room: [u8; 16],
+    room_hex: String,
+    key: [u8; 32],
+}
+
+impl Seat<'_> {
+    /// The Mac's next phase `want` (or REFUSED when waiting for REGISTERED), opened.
+    async fn wait(&self, want: u8) -> Result<(u8, Vec<u8>), String> {
+        for _ in 0..2000 {
+            let msgs = match self.client.room_fetch(&self.room_hex).await {
+                Err(bogo_relay_proto::Error::Status(404)) => {
+                    return Err("that Mac is no longer waiting".into());
+                }
+                other => other.map_err(|e| e.to_string())?,
             };
-            let Some(&phase) = body.first() else { continue };
-            if m.msg_id != hex::encode(phase_msg_id(offer_id, phase)) {
-                continue;
+            for m in msgs {
+                let Ok(body) = hex::decode(&m.body) else {
+                    continue;
+                };
+                let Some((phase, payload)) = open_room(&self.key, &self.room, &body) else {
+                    continue;
+                };
+                if m.msg_id != hex::encode(phase_msg_id(&self.room, phase)) {
+                    continue;
+                }
+                if phase == PHASE_MAC_ABORT {
+                    return Err("the Mac cancelled".into());
+                }
+                if phase == want || (want == PHASE_REGISTERED && phase == PHASE_REFUSED) {
+                    return Ok((phase, payload));
+                }
             }
-            if phase == PHASE_MAC_ABORT {
-                return Err("the Mac cancelled (the owner said the codes do not match)".into());
-            }
-            if phase == want || (want == PHASE_REGISTERED && phase == PHASE_REFUSED) {
-                return Ok(body);
-            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
         }
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        Err("timed out".into())
     }
-    Err("timed out".into())
+
+    async fn send(&self, phase: u8, payload: &[u8]) -> Result<(), String> {
+        let msg = RoomSend {
+            room: self.room_hex.clone(),
+            msg_id: hex::encode(phase_msg_id(&self.room, phase)),
+            body: hex::encode(seal_room(&self.key, &self.room, phase, payload)),
+        };
+        self.client.room_send(&msg).await.map_err(|e| e.to_string())
+    }
 }
 
-async fn lobby_send(
-    client: &Client,
-    offer: &str,
-    offer_id: &[u8; 16],
-    phase: u8,
-    payload: &[u8],
-) -> Result<(), String> {
-    client
-        .lobby_send(
-            offer,
-            &LobbySend {
-                msg_id: hex::encode(phase_msg_id(offer_id, phase)),
-                body: hex::encode(phase_body(phase, payload)),
-            },
-        )
+/// Runs `dns-sd` for a moment and returns what it printed.
+async fn dns_sd(args: &[&str]) -> String {
+    let Ok(mut child) = tokio::process::Command::new("/usr/bin/dns-sd")
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+    else {
+        return String::new();
+    };
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let _ = child.start_kill();
+    child
+        .wait_with_output()
         .await
-        .map_err(|e| e.to_string())
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default()
 }
 
-async fn add(ctx: &Ctx, label: &str) -> Result<(), String> {
+/// The Macs waiting nearby, as (name, pairing code), read from their Bonjour
+/// adverts the way the app's browser reads them.
+async fn nearby() -> Vec<(String, PairCode)> {
+    let service = format!("{NEARBY_SERVICE}.");
+    let mut names: Vec<String> = dns_sd(&["-B", NEARBY_SERVICE, "local"])
+        .await
+        .lines()
+        .filter(|l| l.contains(" Add "))
+        .filter_map(|l| Some(l.split_once(&service)?.1.trim().to_string()))
+        .collect();
+    names.sort();
+    names.dedup();
+    let mut out = Vec::new();
+    for name in names {
+        let txt = dns_sd(&["-L", &name, NEARBY_SERVICE, "local"]).await;
+        if let Some(code) = txt
+            .split_whitespace()
+            .find_map(|w| w.strip_prefix("c=").and_then(PairCode::parse))
+        {
+            out.push((name, code));
+        }
+    }
+    out
+}
+
+async fn add(ctx: &Ctx, name: &str) -> Result<(), String> {
     let client = &ctx.client;
-    let offers = client.offers().await.map_err(|e| e.to_string())?;
-    let o = offers
-        .iter()
-        .find(|o| label.is_empty() || o.offer.mac_label == label)
-        .ok_or("no open offer: run `register <name>` on the Mac first")?;
-    println!(
-        "  Add Mac: \"{}\" (offer opened {}s ago)",
-        o.offer.mac_label, o.age_seconds
-    );
-    let offer = o.offer.offer_id.clone();
-    let offer_id: [u8; 16] = hex::decode(&offer)
-        .ok()
-        .and_then(|b| b.try_into().ok())
-        .ok_or("bad offer id")?;
-    let e_pub_m: [u8; 32] = hex::decode(&o.offer.e_pub_m)
-        .ok()
-        .and_then(|b| b.try_into().ok())
-        .ok_or("bad offer key")?;
+    let found = nearby().await;
+    let (name, code) = found
+        .into_iter()
+        .find(|(n, _)| name.is_empty() || n == name)
+        .ok_or("no such Mac waiting nearby: run `bogo approver add` on the Mac first")?;
+    println!("  Add Mac: \"{name}\"");
+    let room = code.room();
+    let seat = Seat {
+        client,
+        room,
+        room_hex: hex::encode(room),
+        key: code.room_key(),
+    };
+    let offer_id = room;
+    let e_pub_m: [u8; 32] = seat
+        .wait(PHASE_MAC_OFFER)
+        .await?
+        .1
+        .try_into()
+        .map_err(|_| "bad Mac key")?;
+    println!("  Add Mac: joined its room");
     let e_p = x25519_dalek::StaticSecret::random_from_rng(rand::rngs::OsRng);
     let e_pub_p = x25519_dalek::PublicKey::from(&e_p).to_bytes();
-    lobby_send(client, &offer, &offer_id, PHASE_HELLO, &e_pub_p).await?;
-    let commit: [u8; 32] = lobby_wait(client, &offer, &offer_id, PHASE_COMMIT).await?[1..]
+    seat.send(PHASE_HELLO, &e_pub_p).await?;
+    let commit: [u8; 32] = seat
+        .wait(PHASE_COMMIT)
+        .await?
+        .1
         .try_into()
         .map_err(|_| "bad commit")?;
     let n_p: [u8; 16] = rand::random();
-    lobby_send(client, &offer, &offer_id, PHASE_PHONE_NONCE, &n_p).await?;
-    let n_m: [u8; 16] = lobby_wait(client, &offer, &offer_id, PHASE_REVEAL).await?[1..]
+    seat.send(PHASE_PHONE_NONCE, &n_p).await?;
+    let n_m: [u8; 16] = seat
+        .wait(PHASE_REVEAL)
+        .await?
+        .1
         .try_into()
         .map_err(|_| "bad reveal")?;
     if commitment(&e_pub_m, &e_pub_p, &n_m) != commit {
-        lobby_send(client, &offer, &offer_id, PHASE_PHONE_ABORT, &[]).await?;
+        seat.send(PHASE_PHONE_ABORT, &[]).await?;
         return Err("the Mac's reveal does not match its commitment: aborted".into());
     }
     let shared = e_p.diffie_hellman(&x25519_dalek::PublicKey::from(e_pub_m));
@@ -855,8 +908,8 @@ async fn add(ctx: &Ctx, label: &str) -> Result<(), String> {
         spaced(&t.code())
     );
     println!("    └───────────┘");
-    let sealed = lobby_wait(client, &offer, &offer_id, PHASE_MAC_CONFIRMED).await?;
-    let confirmed: MacConfirmed = open_phase(&key, &offer_id, PHASE_MAC_CONFIRMED, &sealed[1..])
+    let sealed = seat.wait(PHASE_MAC_CONFIRMED).await?.1;
+    let confirmed: MacConfirmed = open_phase(&key, &offer_id, PHASE_MAC_CONFIRMED, &sealed)
         .and_then(|p| serde_json::from_slice(&p).ok())
         .ok_or("the Mac's confirmation did not open")?;
     if Sha256::digest(&confirmed.mac_e2e.0).as_slice() != confirmed.bogo_id.0.as_slice() {
@@ -867,8 +920,13 @@ async fn add(ctx: &Ctx, label: &str) -> Result<(), String> {
         confirmed.mac_name,
         short(&confirmed.bogo_id.0)
     );
-    if !ask(ctx, "  Confirm on the phone (simulated Face ID)?").await {
-        lobby_send(client, &offer, &offer_id, PHASE_PHONE_ABORT, &[]).await?;
+    if !ask(
+        ctx,
+        "  Do the codes match? Confirm on the phone (simulated Face ID)?",
+    )
+    .await
+    {
+        seat.send(PHASE_PHONE_ABORT, &[]).await?;
         return Err("cancelled on the phone".into());
     }
     let app = ctx.phone.lock().await.app.clone();
@@ -949,19 +1007,16 @@ async fn add(ctx: &Ctx, label: &str) -> Result<(), String> {
         encoding_versions: vec![1],
     };
     let plaintext = serde_json::to_vec(&submit).map_err(|e| e.to_string())?;
-    lobby_send(
-        client,
-        &offer,
-        &offer_id,
+    seat.send(
         PHASE_REG_SUBMIT,
         &seal_phase(&key, &offer_id, PHASE_REG_SUBMIT, &plaintext),
     )
     .await?;
     println!("  submitted; waiting for the Mac…");
-    let answer = lobby_wait(client, &offer, &offer_id, PHASE_REGISTERED).await?;
+    let (phase, answer) = seat.wait(PHASE_REGISTERED).await?;
     let mut p = ctx.phone.lock().await;
-    if answer[0] == PHASE_REFUSED {
-        let why = open_phase(&key, &offer_id, PHASE_REFUSED, &answer[1..])
+    if phase == PHASE_REFUSED {
+        let why = open_phase(&key, &offer_id, PHASE_REFUSED, &answer)
             .and_then(|b| serde_json::from_slice::<RefusedPhase>(&b).ok())
             .map(|r| r.why)
             .unwrap_or_default();
@@ -969,7 +1024,7 @@ async fn add(ctx: &Ctx, label: &str) -> Result<(), String> {
         p.save();
         return Err(format!("the Mac refused the registration: {why}"));
     }
-    let reg: RegisteredPhase = open_phase(&key, &offer_id, PHASE_REGISTERED, &answer[1..])
+    let reg: RegisteredPhase = open_phase(&key, &offer_id, PHASE_REGISTERED, &answer)
         .and_then(|b| serde_json::from_slice(&b).ok())
         .ok_or("registered did not open")?;
     if let Some(m) = p.store.mac.as_mut()
@@ -1004,11 +1059,12 @@ async fn command(ctx: &Ctx, line: &str) -> Result<bool, String> {
     match words[0] {
         "quit" | "exit" => return Ok(false),
         "help" => println!(
-            "offers | add [label] | status | requests | approve <#> | deny <#> [note] | pause <#> | sync | remove | outbox | replay <n> | copy <n> | hold | release [reverse] | quit"
+            "nearby | add [name] | status | requests | approve <#> | deny <#> [note] | pause <#> | sync | remove | outbox | replay <n> | copy <n> | hold | release [reverse] | quit"
         ),
-        "offers" => {
-            for o in ctx.client.offers().await.map_err(|e| e.to_string())? {
-                println!("  \"{}\" opened {}s ago", o.offer.mac_label, o.age_seconds);
+        "nearby" => {
+            for (name, code) in nearby().await {
+                let relay = code.relay.as_deref().unwrap_or("the public relay");
+                println!("  \"{name}\" waiting, through {relay}");
             }
         }
         "add" => add(ctx, &words[1..].join(" ")).await?,
