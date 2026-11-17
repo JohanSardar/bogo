@@ -1,6 +1,8 @@
 # BOGO relay at bogo.eilmer.si
 
-Live deployment checks and outputs: [DEPLOYMENT.md](DEPLOYMENT.md).
+Live deployment checks and outputs: [DEPLOYMENT.md](DEPLOYMENT.md). This is
+the public relay's own deployment; to run your own, see
+[docs/self-hosting-relay.md](../../docs/self-hosting-relay.md).
 
 Endpoint: **https://bogo.eilmer.si:8443**. The authentication service identity
 is `bogo.eilmer.si:8443` (without the scheme).

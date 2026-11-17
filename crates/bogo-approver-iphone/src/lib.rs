@@ -34,11 +34,14 @@ pub struct ApnsConfig {
 
 pub struct Config {
     pub relay_url: String,
+    /// The public relay's URL: a pairing code names the relay only when it is
+    /// another one.
+    pub public_relay_url: String,
     /// The relay's public service identity bound into mailbox auth.
     pub relay_service: String,
     /// Extra trusted root for a private or local relay certificate (PEM).
     pub relay_root_pem: Option<Vec<u8>>,
-    /// The name the phone sees in Add Mac and in its Macs list.
+    /// The name the phone sees in its Macs list.
     pub mac_name: String,
     /// `[approvers.iphone] app_id`.
     pub app_id: String,

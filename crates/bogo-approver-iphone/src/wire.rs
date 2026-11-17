@@ -1,6 +1,6 @@
 //! The iPhone route's wire formats, shared by the Mac route and any phone
 //! implementation: envelope payloads (ARCHITECTURE §3.11) and the
-//! registration phases carried by the relay lobby. Documented in
+//! pairing code and the registration phases carried in its relay room. Documented in
 //! `docs/RELAY-PROTOCOL.md` § "iPhone route messages".
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit, aead::Aead, aead::Payload};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -137,7 +137,158 @@ impl PhoneMsg {
     }
 }
 
-// ---- Registration (numeric comparison over the relay lobby) ----
+// ---- Pairing code ----
+
+/// The secret a pairing code carries: 120 bits, shown as 24 characters.
+pub const PAIR_SECRET_LEN: usize = 15;
+const PAIR_ALPHABET: &[u8; 32] = b"abcdefghijkmnpqrstuvwxyz23456789";
+const PAIR_PREFIX: &str = "bogo1-";
+
+/// What `bogo approver add` shows and the phone scans or types:
+/// `bogo1-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx`, plus `@host[:port]` when the Mac
+/// uses a relay other than the public one. The secret names the room, so only
+/// the two devices holding the code can find it, and seals every message in
+/// it, so the relay sees only ciphertext and can pose as neither side.
+#[derive(Clone, PartialEq, Eq)]
+pub struct PairCode {
+    pub secret: [u8; PAIR_SECRET_LEN],
+    /// `host[:port]` of the relay, or `None` for the public relay.
+    pub relay: Option<String>,
+}
+
+impl std::fmt::Debug for PairCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PairCode(..)")
+    }
+}
+
+/// `https://Host:443/` → `host`; `https://host:8443` → `host:8443`.
+pub fn relay_host(url: &str) -> String {
+    let h = url
+        .trim_end_matches('/')
+        .trim_start_matches("https://")
+        .to_ascii_lowercase();
+    h.strip_suffix(":443").map(str::to_owned).unwrap_or(h)
+}
+
+impl PairCode {
+    /// A new code for the relay at `relay_url`, naming it unless it is `public_url`.
+    pub fn new(relay_url: &str, public_url: &str) -> PairCode {
+        let relay = relay_host(relay_url);
+        PairCode {
+            secret: rand::random(),
+            relay: (relay != relay_host(public_url)).then_some(relay),
+        }
+    }
+
+    pub fn text(&self) -> String {
+        let mut bits = 0u32;
+        let mut n = 0;
+        let mut chars = String::new();
+        for &b in &self.secret {
+            bits = (bits << 8) | b as u32;
+            n += 8;
+            while n >= 5 {
+                n -= 5;
+                chars.push(PAIR_ALPHABET[((bits >> n) & 31) as usize] as char);
+            }
+        }
+        let groups: Vec<&str> = (0..chars.len())
+            .step_by(4)
+            .map(|i| &chars[i..i + 4])
+            .collect();
+        let mut out = format!("{PAIR_PREFIX}{}", groups.join("-"));
+        if let Some(relay) = &self.relay {
+            out.push('@');
+            out.push_str(relay);
+        }
+        out
+    }
+
+    /// Reads a code as typed: any case, with or without dashes and spaces.
+    pub fn parse(text: &str) -> Option<PairCode> {
+        let text = text.trim();
+        let (code, relay) = match text.split_once('@') {
+            Some((c, r)) => (c, Some(relay_host(r.trim()))),
+            None => (text, None),
+        };
+        let code = code.to_ascii_lowercase();
+        let body = code.strip_prefix(PAIR_PREFIX)?;
+        let mut bits = 0u32;
+        let mut n = 0;
+        let mut secret = Vec::with_capacity(PAIR_SECRET_LEN);
+        for c in body.bytes().filter(|c| !matches!(c, b'-' | b' ')) {
+            let v = PAIR_ALPHABET.iter().position(|&a| a == c)? as u32;
+            bits = (bits << 5) | v;
+            n += 5;
+            if n >= 8 {
+                n -= 8;
+                secret.push((bits >> n) as u8);
+            }
+        }
+        if let Some(r) = &relay
+            && (r.is_empty() || r.contains(['/', '@', '?', '#', ' ']))
+        {
+            return None;
+        }
+        Some(PairCode {
+            secret: secret.try_into().ok()?,
+            relay,
+        })
+    }
+
+    /// The room ID the relay sees: a hash of the secret, never the secret.
+    pub fn room(&self) -> [u8; 16] {
+        Sha256::digest([b"bogo-pair-room/v1".as_slice(), &self.secret].concat())[..16]
+            .try_into()
+            .unwrap()
+    }
+
+    /// The key that seals every message in the room.
+    pub fn room_key(&self) -> [u8; 32] {
+        let hk = hkdf::Hkdf::<Sha256>::new(None, &self.secret);
+        let mut k = [0u8; 32];
+        hk.expand(b"bogo-pair-key/v1", &mut k)
+            .expect("32 bytes is a valid HKDF length");
+        k
+    }
+}
+
+fn room_aad(room: &[u8; 16], phase: u8) -> Vec<u8> {
+    [b"bogo-pair/v1".as_slice(), room, &[phase]].concat()
+}
+
+/// A room message: `phase ‖ ChaCha20-Poly1305(roomKey, 0^11 ‖ phase, payload)`.
+/// Each phase is sent once per room, so the key never reuses a nonce.
+pub fn seal_room(key: &[u8; 32], room: &[u8; 16], phase: u8, payload: &[u8]) -> Vec<u8> {
+    let sealed = ChaCha20Poly1305::new(key.into())
+        .encrypt(
+            &phase_nonce(phase).into(),
+            Payload {
+                msg: payload,
+                aad: &room_aad(room, phase),
+            },
+        )
+        .expect("ChaCha20-Poly1305 sealing does not fail");
+    [&[phase][..], &sealed].concat()
+}
+
+/// Opens a room message, or `None` if it was not sealed with this code.
+pub fn open_room(key: &[u8; 32], room: &[u8; 16], body: &[u8]) -> Option<(u8, Vec<u8>)> {
+    let (&phase, sealed) = body.split_first()?;
+    let plain = ChaCha20Poly1305::new(key.into())
+        .decrypt(
+            &phase_nonce(phase).into(),
+            Payload {
+                msg: sealed,
+                aad: &room_aad(room, phase),
+            },
+        )
+        .ok()?;
+    Some((phase, plain))
+}
+
+// ---- Registration (in the pairing code's room) ----
 
 pub const PHASE_HELLO: u8 = 0x01; // phone: ePubP (32)
 pub const PHASE_COMMIT: u8 = 0x02; // Mac: Cm (32)
@@ -149,13 +300,14 @@ pub const PHASE_REGISTERED: u8 = 0x07; // Mac, sealed Registered
 pub const PHASE_REFUSED: u8 = 0x08; // Mac, sealed Refused
 pub const PHASE_MAC_ABORT: u8 = 0x09; // Mac, empty
 pub const PHASE_PHONE_ABORT: u8 = 0x0a; // phone, empty
+pub const PHASE_MAC_OFFER: u8 = 0x0b; // Mac: ePubM (32)
 
 /// The proof-of-possession domain: the approval key signs
 /// `REG_DOMAIN ‖ transcriptHash ‖ challenge`.
 pub const REG_DOMAIN: &[u8] = b"BOGO-REG\x00v1";
 
-/// A lobby phase's message ID: fixed per offer and phase, so a resend of the
-/// same phase is idempotent at the relay.
+/// A phase's message ID: fixed per room and phase, so a resend of the same
+/// phase is idempotent at the relay. The room ID stands where the offer ID did.
 pub fn phase_msg_id(offer_id: &[u8; 16], phase: u8) -> [u8; 16] {
     Sha256::digest([b"bogo-reg-msg".as_slice(), offer_id, &[phase]].concat())[..16]
         .try_into()
@@ -164,18 +316,6 @@ pub fn phase_msg_id(offer_id: &[u8; 16], phase: u8) -> [u8; 16] {
 
 pub fn commitment(e_pub_m: &[u8; 32], e_pub_p: &[u8; 32], n_m: &[u8; 16]) -> [u8; 32] {
     Sha256::digest([b"bogo-reg-commit".as_slice(), e_pub_m, e_pub_p, n_m].concat()).into()
-}
-
-/// The six digits both screens show: `u64be(SHA-256(…)[0..8]) mod 10^6`.
-pub fn code(e_pub_m: &[u8; 32], e_pub_p: &[u8; 32], n_m: &[u8; 16], n_p: &[u8; 16]) -> String {
-    let d = Sha256::digest([b"bogo-reg-code".as_slice(), e_pub_m, e_pub_p, n_m, n_p].concat());
-    let v = u64::from_be_bytes(d[..8].try_into().unwrap()) % 1_000_000;
-    format!("{v:06}")
-}
-
-/// `382917` → `382 917`.
-pub fn spaced(code: &str) -> String {
-    format!("{} {}", &code[..3], &code[3..])
 }
 
 pub struct Transcript {
@@ -202,9 +342,6 @@ impl Transcript {
             .concat(),
         )
         .into()
-    }
-    pub fn code(&self) -> String {
-        code(&self.e_pub_m, &self.e_pub_p, &self.n_m, &self.n_p)
     }
 }
 
@@ -270,11 +407,6 @@ pub fn open_phase(
             },
         )
         .ok()
-}
-
-/// Lobby body: `phase ‖ payload`.
-pub fn phase_body(phase: u8, payload: &[u8]) -> Vec<u8> {
-    [&[phase][..], payload].concat()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -103,25 +103,20 @@ pub struct Retract {
     pub to: String,
     pub msg_ids: Vec<String>,
 }
+/// A pairing room. The ID is derived from the pairing code's secret, so only
+/// the two devices holding the code can name it; the relay never lists rooms.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Offer {
-    pub offer_id: String,
-    pub e_pub_m: String,
-    pub mac_label: String,
+pub struct Room {
+    pub room: String,
 }
 #[derive(Clone, Serialize, Deserialize)]
-pub struct ListedOffer {
-    #[serde(flatten)]
-    pub offer: Offer,
-    pub age_seconds: u64,
-}
-#[derive(Clone, Serialize, Deserialize)]
-pub struct LobbySend {
+pub struct RoomSend {
+    pub room: String,
     pub msg_id: String,
     pub body: String,
 }
 #[derive(Clone, Serialize, Deserialize)]
-pub struct LobbyMessage {
+pub struct RoomMessage {
     pub msg_id: String,
     pub from: String,
     pub body: String,
@@ -196,16 +191,12 @@ impl Client {
     }
     async fn response(
         &self,
-        method: reqwest::Method,
         path: &str,
-        body: Option<&impl Serialize>,
+        body: &impl Serialize,
     ) -> Result<reqwest::Response, Error> {
-        let mut r = self.http.request(method, format!("{}{path}", self.base));
+        let mut r = self.http.post(format!("{}{path}", self.base)).json(body);
         if !self.token.is_empty() {
             r = r.bearer_auth(&self.token);
-        }
-        if let Some(body) = body {
-            r = r.json(body);
         }
         let response = r.send().await.map_err(|_| Error::Transport)?;
         if !response.status().is_success() {
@@ -218,15 +209,14 @@ impl Client {
         path: &str,
         body: &impl Serialize,
     ) -> Result<T, Error> {
-        self.response(reqwest::Method::POST, path, Some(body))
+        self.response(path, body)
             .await?
             .json()
             .await
             .map_err(|_| Error::Wire)
     }
     async fn empty(&self, path: &str, body: &impl Serialize) -> Result<(), Error> {
-        self.response(reqwest::Method::POST, path, Some(body))
-            .await?;
+        self.response(path, body).await?;
         Ok(())
     }
     pub async fn allow(&self, senders: Vec<String>) -> Result<(), Error> {
@@ -254,38 +244,26 @@ impl Client {
     pub async fn retract(&self, to: String, msg_ids: Vec<String>) -> Result<(), Error> {
         self.empty("/v1/retract", &Retract { to, msg_ids }).await
     }
-    pub async fn offer(&self, offer: &Offer) -> Result<(), Error> {
-        self.empty("/v1/lobby/offer", offer).await
+    /// Open (or keep open) a pairing room this mailbox owns.
+    pub async fn room_open(&self, room: &str) -> Result<(), Error> {
+        self.empty("/v1/room/open", &Self::room(room)?).await
     }
-    pub async fn offers(&self) -> Result<Vec<ListedOffer>, Error> {
-        self.response(reqwest::Method::GET, "/v1/lobby", None::<&()>)
-            .await?
-            .json()
-            .await
-            .map_err(|_| Error::Wire)
+    pub async fn room_send(&self, msg: &RoomSend) -> Result<(), Error> {
+        Self::room(&msg.room)?;
+        self.empty("/v1/room/send", msg).await
     }
-    pub async fn lobby_send(&self, id: &str, msg: &LobbySend) -> Result<(), Error> {
-        if !valid_hex(id, 16) {
+    /// The other side's messages. The first mailbox other than the owner to
+    /// fetch or send takes the room's one other seat.
+    pub async fn room_fetch(&self, room: &str) -> Result<Vec<RoomMessage>, Error> {
+        self.post("/v1/room/fetch", &Self::room(room)?).await
+    }
+    pub async fn room_close(&self, room: &str) -> Result<(), Error> {
+        self.empty("/v1/room/close", &Self::room(room)?).await
+    }
+    fn room(room: &str) -> Result<Room, Error> {
+        if !valid_hex(room, 16) {
             return Err(Error::Wire);
         }
-        self.empty(&format!("/v1/lobby/{id}/msg"), msg).await
-    }
-    pub async fn lobby_fetch(&self, id: &str) -> Result<Vec<LobbyMessage>, Error> {
-        if !valid_hex(id, 16) {
-            return Err(Error::Wire);
-        }
-        self.post(&format!("/v1/lobby/{id}/fetch"), &()).await
-    }
-    pub async fn delete_offer(&self, id: &str) -> Result<(), Error> {
-        if !valid_hex(id, 16) {
-            return Err(Error::Wire);
-        }
-        self.response(
-            reqwest::Method::DELETE,
-            &format!("/v1/lobby/{id}"),
-            None::<&()>,
-        )
-        .await?;
-        Ok(())
+        Ok(Room { room: room.into() })
     }
 }

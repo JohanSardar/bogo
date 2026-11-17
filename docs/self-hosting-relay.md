@@ -1,0 +1,73 @@
+# Running your own relay
+
+BOGO needs no relay setup: every install uses the free public relay,
+`https://bogo.eilmer.si:8443`. The relay only ever sees ciphertext. It never
+holds a key that opens a request, a decision or a pairing, so using the public
+one costs you no privacy. Run your own if you want to control where those
+ciphertexts live, or not rely on someone else's server.
+
+Whichever way you run it, point BOGO at it with one setting in
+`~/.bogo/bogo.toml`, then restart the daemon:
+
+```toml
+[relay]
+url = "https://relay.example.com"
+```
+
+The phone needs no setting. The pairing code `bogo approver add` shows names
+your relay (`bogo1-…@relay.example.com`), and the phone uses it for that Mac
+from then on. A phone already paired through another relay keeps working only
+on that relay, so add the Mac again after switching.
+
+## On a VPS (Docker)
+
+Needs Docker with Compose, ports 80 and 443 open, and a DNS name pointing at
+the machine. With no domain, use `<your-ip-with-dashes>.sslip.io` (for example
+`203-0-113-7.sslip.io`), which already resolves to that address.
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/JohanSardar/bogo/main/deploy/relay/compose.yaml && DOMAIN=relay.example.com docker compose up -d
+```
+
+This builds the relay from this repository and puts [Caddy](https://caddyserver.com)
+in front of it, which gets and renews a Let's Encrypt certificate on its own.
+Then set `url = "https://relay.example.com"`.
+
+## On a cloud service
+
+Any container service that gives you an HTTPS address works (Google Cloud Run,
+Fly.io, Render, Railway and others). Build the image from this repository:
+
+```sh
+docker build -t bogo-relay -f deploy/relay/Dockerfile https://github.com/JohanSardar/bogo.git#main
+```
+
+and run it on the service with port 8080, one instance (pairing rooms live in
+the relay's memory), and, if the service has one, a persistent volume at
+`/data`. Without a volume the relay forgets undelivered messages when it
+restarts; the Mac and phone send them again. Set `url` to the HTTPS address
+the service gives you.
+
+## On a Mac
+
+From this repository, with a free [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
+giving it an HTTPS address (install `cloudflared` first, for example with
+`brew install cloudflared`):
+
+```sh
+cargo run --release -p bogo-relay & cloudflared tunnel --url http://127.0.0.1:8080
+```
+
+`cloudflared` prints an `https://….trycloudflare.com` address; set `url` to
+it. A quick tunnel's address changes every time it starts, so this suits
+trying things out. For a lasting address use a named Cloudflare tunnel or
+Tailscale Funnel, or run the relay with your own certificate:
+`bogo-relay --listen 0.0.0.0:8443 --cert cert.pem --key key.pem`.
+
+## What the relay does with no flags
+
+`bogo-relay` alone serves plain HTTP on `127.0.0.1:8080`, keeps its SQLite
+database in `./bogo-relay.sqlite`, keeps undelivered messages for 30 days and
+at most 1000 per mailbox. Put HTTPS in front of it, or give `--cert` and
+`--key` to serve HTTPS itself. `bogo-relay --help` lists every flag. The
+public relay's own deployment is in [deploy/relay](../deploy/relay/README.md).

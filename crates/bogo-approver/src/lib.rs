@@ -184,16 +184,12 @@ pub trait InboundHandler: Send + Sync {
 #[async_trait]
 pub trait OwnerPrompt: Send + Sync {
     async fn status(&self, line: &str);
-    /// Show the code and ask the owner whether the approver shows the same.
-    async fn confirm_code(&self, code: &str) -> bool;
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum RegError {
     #[error("registration aborted: {0}")]
     Aborted(String),
-    #[error("the owner said the codes do not match; nothing was registered")]
-    Mismatch,
     #[error("registration refused: {0}")]
     Refused(String),
     #[error("relay: {0}")]

@@ -1,6 +1,6 @@
 [package]
 name = "bogo-approver-iphone"
-description = "iPhone route: numeric-comparison registration with App Attest, delivery through BOGO's relay, decision intake, notices, APNs pushes"
+description = "iPhone route: pairing-code registration with App Attest, delivery through BOGO's relay, decision intake, notices, APNs pushes"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -32,6 +32,7 @@ hex = "0.4"
 base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tracing.workspace = true
+qrcode = { version = "0.14", default-features = false }
 
 [lints]
 workspace = true

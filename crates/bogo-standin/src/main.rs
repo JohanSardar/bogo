@@ -546,26 +546,6 @@ impl OwnerPrompt for Terminal {
     async fn status(&self, line: &str) {
         println!("  {line}");
     }
-    async fn confirm_code(&self, code: &str) -> bool {
-        println!();
-        println!("    ┌───────────┐");
-        println!(
-            "    │  {}  │   Does the phone show the same 6 digits? [y/N]",
-            bogo_approver_iphone::wire::spaced(code)
-        );
-        println!("    └───────────┘");
-        let answer = self
-            .lines
-            .lock()
-            .await
-            .next_line()
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        println!("  owner answered: {answer:?}");
-        matches!(answer.trim(), "y" | "Y" | "yes")
-    }
 }
 
 struct App {
@@ -1006,6 +986,8 @@ async fn run(args: Args) -> Result<(), String> {
         .map_err(|e| format!("relay CA: {e}"))?;
     let cfg = Config {
         relay_url: args.relay.clone(),
+        // The stand-in always names its relay in the pairing code.
+        public_relay_url: String::new(),
         relay_service: args.relay_service.clone(),
         relay_root_pem,
         mac_name: args.mac_name.clone(),

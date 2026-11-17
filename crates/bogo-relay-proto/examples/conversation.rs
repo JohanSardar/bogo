@@ -19,8 +19,6 @@ fn start(binary: &str, dir: &Path, port: u16) -> Relay {
         .args([
             "--listen",
             &format!("127.0.0.1:{port}"),
-            "--service",
-            "bogo-local",
             "--max-message-age",
             "86400",
             "--mailbox-capacity",
@@ -43,8 +41,10 @@ fn start(binary: &str, dir: &Path, port: u16) -> Relay {
     println!("{}", ready.trim());
     Relay(child)
 }
+/// No `--service`: the relay binds sign-ins to the host the client addressed.
 async fn connect(base: &str, key: &SigningKey, http: &reqwest::Client) -> Client {
-    Client::connect(base, "bogo-local", key, http.clone())
+    let service = base.strip_prefix("https://").unwrap();
+    Client::connect(base, service, key, http.clone())
         .await
         .unwrap()
 }
@@ -92,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .json()
         .await?;
     let sig = rogue_key.sign(&auth_bytes(
-        "bogo-local",
+        base.strip_prefix("https://").unwrap(),
         &rogue_key.verifying_key().to_bytes(),
         &c.challenge,
     )?);
@@ -281,53 +281,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(delivery?.len(), 1);
     phone.ack(vec![hex::encode(id3)]).await?;
     println!("ack/retract: recipient ack, sender-only retract, and long-poll delivery passed");
-    let offer = Offer {
-        offer_id: hex::encode(message_id()),
-        e_pub_m: hex::encode([6; 32]),
-        mac_label: "Local BOGO Mac".into(),
+    // Pairing rooms: unlisted, named by a hash of the code's secret.
+    let room = hex::encode(message_id());
+    let msg = |body: &str| RoomSend {
+        room: room.clone(),
+        msg_id: hex::encode(message_id()),
+        body: body.into(),
     };
-    mac.offer(&offer).await?;
-    mac.offer(&offer).await?;
-    assert_eq!(phone.offers().await?.len(), 1);
-    refused(rogue.offer(&offer).await, 403);
-    phone
-        .lobby_send(
-            &offer.offer_id,
-            &LobbySend {
-                msg_id: hex::encode(message_id()),
-                body: "abcd".into(),
-            },
-        )
-        .await?;
-    refused(
-        rogue
-            .lobby_send(
-                &offer.offer_id,
-                &LobbySend {
-                    msg_id: hex::encode(message_id()),
-                    body: "abcd".into(),
-                },
-            )
-            .await,
-        403,
-    );
-    refused(rogue.lobby_fetch(&offer.offer_id).await, 403);
-    assert_eq!(mac.lobby_fetch(&offer.offer_id).await?.len(), 1);
-    mac.lobby_send(
-        &offer.offer_id,
-        &LobbySend {
-            msg_id: hex::encode(message_id()),
-            body: "cdef".into(),
-        },
-    )
-    .await?;
-    assert_eq!(phone.lobby_fetch(&offer.offer_id).await?.len(), 1);
-    assert!(phone.offers().await?.is_empty());
-    refused(phone.delete_offer(&offer.offer_id).await, 403);
-    mac.delete_offer(&offer.offer_id).await?;
-    refused(phone.lobby_fetch(&offer.offer_id).await, 404);
+    refused(phone.room_fetch(&room).await, 404);
+    mac.room_open(&room).await?;
+    mac.room_open(&room).await?;
+    refused(rogue.room_open(&room).await, 403);
+    phone.room_send(&msg("abcd")).await?;
+    refused(rogue.room_send(&msg("abcd")).await, 403);
+    refused(rogue.room_fetch(&room).await, 403);
+    assert_eq!(mac.room_fetch(&room).await?.len(), 1);
+    mac.room_send(&msg("cdef")).await?;
+    assert_eq!(phone.room_fetch(&room).await?.len(), 1);
+    refused(phone.room_close(&room).await, 403);
+    for _ in 0..4 {
+        rogue.room_open(&hex::encode(message_id())).await?;
+    }
+    refused(rogue.room_open(&hex::encode(message_id())).await, 429);
+    mac.room_close(&room).await?;
+    refused(phone.room_fetch(&room).await, 404);
     println!(
-        "lobby: publish/refresh/list, one peer, bidirectional opaque phase data, owner-only delete passed"
+        "rooms: unlisted, owner refresh, one other seat, strangers refused, per-owner limit, owner-only close passed"
     );
     phone.allow(vec![]).await?;
     refused(mac.send(&phone.mailbox, id, &envelope).await, 403);

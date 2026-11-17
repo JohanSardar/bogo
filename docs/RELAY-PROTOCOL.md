@@ -1,8 +1,11 @@
 # Crypto and relay v1 contract
 
 This implements ARCHITECTURE §3.4, §3.11–3.12 and §6. Nothing connects to an
-Apple Bridge Mac service. The relay is a separate TLS-only binary. It stores
-ciphertext and routing metadata and has no E2E, approval, or APNs private key.
+Apple Bridge Mac service. The relay is a separate binary that clients reach
+only over HTTPS. It stores ciphertext and routing metadata and has no E2E,
+approval, or APNs private key. Every install uses the public relay unless
+`[relay] url` names another; [self-hosting](self-hosting-relay.md) shows how to
+run one.
 
 ## Envelope
 
@@ -41,9 +44,11 @@ returns a random 32-byte challenge, valid for 60 seconds. The signature input is
 || mailbox:32 || challenge:32
 ```
 
-The owner configures the relay's public service identity (normally its hostname
-and port) and supplies that same identity to the client. The challenge binds
-both that service and mailbox. `POST /v1/auth/verify {pub,sig}` consumes it even
+The service is the `host:port` the client addressed, the port always written
+(443 when the URL has none). The relay takes it from the request's Host
+header, or `--service` pins it. A relay that forwards another relay's challenge
+cannot use the answer, because the client signed the host it meant to reach.
+The challenge binds both that service and mailbox. `POST /v1/auth/verify {pub,sig}` consumes it even
 on a bad signature and returns a random 32-byte hex bearer token valid for one
 hour. All remaining endpoints require that bearer. Tokens and challenges are
 bounded in memory (4096 each), never stored or logged, and vanish on restart.
@@ -76,28 +81,30 @@ opaque body and creation time only. Retention is explicitly set with
 Retention is never approval expiry. Endpoint obligations must be resent if
 still live. Endpoint deduplication also covers messages resent after relay ack.
 
-## Registration lobby
+## Pairing rooms
 
-The lobby carries the registration protocol's public commitment handshake and,
-after SAS comparison, opaque sealed phase data. It never authorizes registration.
-Both endpoints must implement the commitment, SAS, owner confirmation, App Attest
-and proof-of-possession steps from ARCHITECTURE §3.11.
+A room carries one registration between its owner (the Mac) and one other
+mailbox (the phone). Its 16-byte ID is a hash of the pairing code's secret, so
+only the two devices holding the code can name it. Rooms are never listed. The
+relay sees each body as opaque bytes: endpoints seal every room message with
+the code's room key, and the relay never authorizes registration. Every body is
+`{room, …}` JSON with hex fields; IDs never appear in URLs.
 
-- `POST /v1/lobby/offer {offer_id,e_pub_m,mac_label}` creates or refreshes an
-  offer. IDs are 16 bytes; the ephemeral key is 32 bytes. Labels are 1–128 UTF-8
-  bytes. Only its owner can refresh it, and its key/label cannot change.
-- `GET /v1/lobby` returns open, unclaimed offers, with `age_seconds` added.
-- `POST /v1/lobby/{id}/msg {msg_id,body}` carries hex phase data, up to 64 KiB.
-  The first nonowner writer claims the sole phone slot. A different phone is
-  refused. Owner and phone can send; repeated identical phase IDs are idempotent.
-- `POST /v1/lobby/{id}/fetch` returns all other-side `{msg_id,from,body}` phases;
-  each endpoint deduplicates IDs. Outsiders are refused.
-- `DELETE /v1/lobby/{id}` removes an offer, owner only.
+- `POST /v1/room/open {room}` creates or refreshes a room. Only its owner can
+  refresh it; anyone else gets 403.
+- `POST /v1/room/send {room,msg_id,body}` carries up to 64 KiB. Repeated identical
+  IDs are idempotent; a changed body for an ID is 409.
+- `POST /v1/room/fetch {room}` returns the other side's `{msg_id,from,body}`
+  messages; each endpoint deduplicates IDs.
+- `POST /v1/room/close {room}` removes a room, owner only.
 
-At most 256 offers and 64 phases per offer are held in memory. Offers expire
-120 seconds after their owner's last refresh. The owner should refresh at less
-than that interval. Restart removes all offers. Abort requires removing the
-offer and starting a new one, with new ephemeral keys and IDs.
+The first mailbox other than the owner to send or fetch takes the room's one
+other seat, as in croc, where a third client gets "room full"; everyone else
+gets 403, and an unknown room is 404. At most 1024 rooms, 4 per owner, and 16
+messages per room are held in memory. Rooms close 120 seconds after their
+owner's last refresh; the Mac refreshes every 30 seconds while `bogo approver
+add` runs. Restart removes all rooms. Abort means closing the room and running
+the command again, which makes a new code.
 
 ## iPhone route messages
 
@@ -150,13 +157,28 @@ accepts a wake for a request, resends of it carry no more wakes. A 410, or a 400
 BadDeviceToken or DeviceTokenNotForTopic, stops wake-ups to that token until a
 newer `pushToken` arrives.
 
-### Registration over the lobby
+### Registration in the pairing room
 
-Lobby bodies are `phase ‖ payload`; the message ID of each phase is
-`SHA-256("bogo-reg-msg" ‖ offerId ‖ phase)[0..16]`, so repeats are idempotent.
+`bogo approver add` shows the pairing code as a QR and as text:
+`bogo1-` and 24 characters from `abcdefghijkmnpqrstuvwxyz23456789` (the
+15-byte secret `s`, base32, in groups of four), plus `@host[:port]` when the
+Mac's relay is not the public one. The phone uses that relay for the pairing
+and for every message to that Mac afterwards. From the secret:
+
+- `room = SHA-256("bogo-pair-room/v1" ‖ s)[0..16]`, which also stands as the
+  transcript's `offerId`;
+- `roomKey = HKDF-SHA256(salt = none, ikm = s, info = "bogo-pair-key/v1")`.
+
+Room bodies are `phase ‖ ChaCha20-Poly1305(roomKey, nonce 0^11 ‖ phase, AAD
+"bogo-pair/v1" ‖ room ‖ phase, payload)`; each phase is sent once per room. A
+body that does not open is ignored, so only a holder of the code can speak in
+the room, and the relay sees no key, nonce, label or name. The message ID of
+each phase is `SHA-256("bogo-reg-msg" ‖ room ‖ phase)[0..16]`, so repeats are
+idempotent.
 
 | phase | from | payload |
 |---|---|---|
+| 0x0b MAC_OFFER | Mac | `ePubM` (X25519, 32) |
 | 0x01 HELLO | phone | `ePubP` (X25519, 32) |
 | 0x02 COMMIT | Mac | `Cm = SHA-256("bogo-reg-commit" ‖ ePubM ‖ ePubP ‖ Nm)` |
 | 0x03 PHONE_NONCE | phone | `Np` (16) |
@@ -167,9 +189,9 @@ Lobby bodies are `phase ‖ payload`; the message ID of each phase is
 | 0x08 REFUSED | Mac | sealed `{why}` |
 | 0x09 MAC_ABORT / 0x0a PHONE_ABORT | either | empty |
 
-Both screens show `u64be(SHA-256("bogo-reg-code" ‖ ePubM ‖ ePubP ‖ Nm ‖ Np)[0..8])
-mod 10^6`. The phone checks `Cm` against the reveal; the commitment stops a
-man in the middle from choosing its key after seeing the other nonce. Then:
+The room key proves each side holds the code, so no digits are compared. The
+phone checks `Cm` against the reveal, and the transcript is unchanged, so the
+proof of possession and App Attest hash below are exactly as before. Then:
 
 - `th = SHA-256("bogo-reg-transcript/v1" ‖ offerId ‖ ePubM ‖ ePubP ‖ Cm ‖ Nm ‖ Np)`
 - `K = HKDF-SHA256(salt = th, ikm = X25519(eM, eP), info = "bogo-reg-key/v1")`
@@ -180,16 +202,15 @@ man in the middle from choosing its key after seeing the other nonce. Then:
 - App Attest's client data hash is `registration_client_data_hash(th,
   challenge, approvalKey, phoneE2e, phoneRelay)`.
 
-The Mac sends MAC_CONFIRMED only after the owner confirms the code on the Mac,
-and a declined code sends MAC_ABORT. Before committing, it checks that the lobby
-peer's mailbox is `SHA-256(phoneRelay)`, the proof, encoding version 1, and the
+The Mac sends MAC_CONFIRMED once the reveal is out; an interrupted command sends
+MAC_ABORT. Before committing, it checks that the room peer's mailbox is `SHA-256(phoneRelay)`, the proof, encoding version 1, and the
 App Attest evidence. Evidence that is present is always verified. Missing
 evidence is accepted only by a build with the `test-registration` feature
 (recorded as `simulator-test`), and every other build refuses it. A duplicate
 approver ID, txId or approval key is refused. The Mac logs
-`approver_registered` durably, then answers REGISTERED in the lobby and also
+`approver_registered` durably, then answers REGISTERED in the room and also
 sends `registered` to the phone's mailbox. It re-sends `registered` on every boot
-and on `regResend`. An offer stays up for 3 seconds after the Mac's last phase
+and on `regResend`. A room stays up for 3 seconds after the Mac's last phase
 so that the phone can read it.
 
 ## Approval verifier and attestation
@@ -263,20 +284,23 @@ cargo run -p bogo-verify --features test-approvers --example exact_bytes
 
 The conversation example starts its own local TLS relay on a free port, uses
 three independent in-memory mailbox keys, checks refusals, exchanges envelopes,
-inspects SQLite, kills/restarts the relay, checks delivery, and stops it on exit.
-Use a fresh directory/database per run. Run `cargo run -p bogo-apns --example
-sandbox` only when deliberately checking the owner's credentials; it sends one
-made-up token to Apple's sandbox using the explicitly authorized key path.
+inspects SQLite, kills/restarts the relay, checks delivery and pairing rooms,
+and stops it on exit. Use a fresh directory/database per run. Run `cargo run -p
+bogo-apns --example sandbox` only when deliberately checking the owner's
+credentials; it sends one made-up token to Apple's sandbox using the explicitly
+authorized key path.
 
-For a manually managed relay:
+`bogo-relay` alone serves plain HTTP on `127.0.0.1:8080` for an HTTPS proxy,
+tunnel or cloud service in front, keeping `bogo-relay.sqlite` in the current
+directory, 30 days' retention and 1000 messages per mailbox. To serve HTTPS
+itself:
 
 ```sh
-target/debug/bogo-relay --listen 127.0.0.1:8843 --service localhost:8843 \
-  --database /tmp/bogo-relay-local/manual.sqlite --max-message-age 86400 \
+target/debug/bogo-relay --listen 127.0.0.1:8843 \
+  --database /tmp/bogo-relay-local/manual.sqlite \
   --cert /tmp/bogo-relay-local/cert.pem --key /tmp/bogo-relay-local/key.pem
 ```
 
 SIGHUP reloads the configured certificate and key atomically; a failed reload
-keeps the current certificate. Deployment, DNS, public certificates and the VPS
-service are a separate checkpoint. Protect the relay's state directory and TLS
-key with filesystem permissions when configuring that deployment.
+keeps the current certificate. Protect the relay's state directory and TLS key
+with filesystem permissions.

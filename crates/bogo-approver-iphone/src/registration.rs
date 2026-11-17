@@ -1,18 +1,19 @@
-//! Registration on the Mac: numeric comparison over the relay lobby, then
-//! proof of possession and App Attest (ARCHITECTURE §3.11). Nothing becomes
-//! trusted here; the hub commits only what [`MacRegistration`] hands it.
+//! Registration on the Mac: a pairing code the phone scans or types, its
+//! sealed relay room, then proof of possession and App Attest (ARCHITECTURE
+//! §3.11). Nothing becomes trusted here; the hub commits only what
+//! [`MacRegistration`] hands it.
 use crate::{IphoneRoute, wire::*};
 use async_trait::async_trait;
 use base64::Engine;
 use bogo_approver::*;
-use bogo_relay_proto::{LobbySend, Offer};
+use bogo_relay_proto::RoomSend;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// How long each side waits for the other during registration.
 const STEP_TIMEOUT: Duration = Duration::from_secs(600);
 const POLL: Duration = Duration::from_millis(300);
 const REFRESH: Duration = Duration::from_secs(30);
-/// How long a closing offer stays up so the phone can fetch the last phase.
+/// How long a closing room stays up so the phone can fetch the last phase.
 const LINGER: Duration = Duration::from_secs(3);
 
 /// True only in a test build (`test-registration`), which accepts the
@@ -25,44 +26,44 @@ fn transport(e: impl std::fmt::Display) -> RegError {
     RegError::Transport(e.to_string())
 }
 
-struct Lobby<'a> {
+/// The Mac's seat in the pairing code's room. Every message in it is sealed
+/// with the code's room key, so only the phone holding the code can read or
+/// write it, and the relay sees ciphertext only.
+struct Room<'a> {
     route: &'a IphoneRoute,
-    offer_id: [u8; 16],
-    offer_hex: String,
+    room: [u8; 16],
+    room_hex: String,
+    key: [u8; 32],
     peer: Option<String>,
     seen: std::collections::HashSet<String>,
     refresher: tokio::task::JoinHandle<()>,
 }
 
-impl Lobby<'_> {
+impl Room<'_> {
     async fn send(&self, phase: u8, payload: &[u8]) -> Result<(), RegError> {
-        let msg = LobbySend {
-            msg_id: hex::encode(phase_msg_id(&self.offer_id, phase)),
-            body: hex::encode(phase_body(phase, payload)),
-        };
-        let id = self.offer_hex.clone();
-        self.route
-            .relay
-            .call(|c| {
-                let (id, msg) = (id.clone(), msg.clone());
-                async move { c.lobby_send(&id, &msg).await }
-            })
-            .await
-            .map_err(transport)
+        room_send(
+            &self.route.relay,
+            &self.room_hex,
+            &self.room,
+            &self.key,
+            phase,
+            payload,
+        )
+        .await
     }
 
     /// Wait for the phone's next phase, accepting only `want` or an abort,
-    /// and only from the one phone that claimed this offer.
+    /// and only from the one phone that joined this room.
     async fn next(&mut self, want: u8) -> Result<Vec<u8>, RegError> {
         let deadline = Instant::now() + STEP_TIMEOUT;
         loop {
-            let id = self.offer_hex.clone();
+            let id = self.room_hex.clone();
             let msgs = self
                 .route
                 .relay
                 .call(|c| {
                     let id = id.clone();
-                    async move { c.lobby_fetch(&id).await }
+                    async move { c.room_fetch(&id).await }
                 })
                 .await
                 .map_err(transport)?;
@@ -77,10 +78,10 @@ impl Lobby<'_> {
                 let Ok(body) = hex::decode(&m.body) else {
                     continue;
                 };
-                let Some((&phase, payload)) = body.split_first() else {
+                let Some((phase, payload)) = open_room(&self.key, &self.room, &body) else {
                     continue;
                 };
-                if m.msg_id != hex::encode(phase_msg_id(&self.offer_id, phase)) {
+                if m.msg_id != hex::encode(phase_msg_id(&self.room, phase)) {
                     continue;
                 }
                 if phase == PHASE_PHONE_ABORT {
@@ -88,7 +89,7 @@ impl Lobby<'_> {
                 }
                 if phase == want {
                     self.peer.get_or_insert(m.from.clone());
-                    return Ok(payload.to_vec());
+                    return Ok(payload);
                 }
             }
             if Instant::now() > deadline {
@@ -100,18 +101,10 @@ impl Lobby<'_> {
 
     async fn close(&self) {
         self.refresher.abort();
-        let id = self.offer_hex.clone();
-        let _ = self
-            .route
-            .relay
-            .call(|c| {
-                let id = id.clone();
-                async move { c.delete_offer(&id).await }
-            })
-            .await;
+        room_close(&self.route.relay, &self.room_hex).await;
     }
 
-    /// Tell the phone, give it a moment to fetch the abort, then close the offer.
+    /// Tell the phone, give it a moment to fetch the abort, then close the room.
     async fn abort(&self) {
         if self.send(PHASE_MAC_ABORT, &[]).await.is_ok() {
             tokio::time::sleep(LINGER).await;
@@ -120,32 +113,88 @@ impl Lobby<'_> {
     }
 }
 
+async fn room_send(
+    relay: &crate::relay::Relay,
+    room_hex: &str,
+    room: &[u8; 16],
+    key: &[u8; 32],
+    phase: u8,
+    payload: &[u8],
+) -> Result<(), RegError> {
+    let msg = RoomSend {
+        room: room_hex.into(),
+        msg_id: hex::encode(phase_msg_id(room, phase)),
+        body: hex::encode(seal_room(key, room, phase, payload)),
+    };
+    relay
+        .call(|c| {
+            let msg = msg.clone();
+            async move { c.room_send(&msg).await }
+        })
+        .await
+        .map_err(transport)
+}
+
+async fn room_close(relay: &crate::relay::Relay, room_hex: &str) {
+    let _ = relay
+        .call(|c| {
+            let id = room_hex.to_owned();
+            async move { c.room_close(&id).await }
+        })
+        .await;
+}
+
+/// The code as a QR, drawn black on white so it scans on dark terminals too.
+fn qr(text: &str) -> String {
+    let Ok(code) = qrcode::QrCode::with_error_correction_level(text, qrcode::EcLevel::M) else {
+        return String::new();
+    };
+    let width = code.width();
+    let dark = |x: isize, y: isize| {
+        x >= 0
+            && y >= 0
+            && (x as usize) < width
+            && (y as usize) < width
+            && code[(x as usize, y as usize)] == qrcode::Color::Dark
+    };
+    let mut out = String::new();
+    for y in (-2..width as isize + 2).step_by(2) {
+        out.push_str("    \x1b[30;47m");
+        for x in -2..width as isize + 2 {
+            out.push(match (dark(x, y), dark(x, y + 1)) {
+                (true, true) => '█',
+                (true, false) => '▀',
+                (false, true) => '▄',
+                (false, false) => ' ',
+            });
+        }
+        out.push_str("\x1b[0m\n");
+    }
+    out
+}
+
 pub(crate) async fn run(
     route: &IphoneRoute,
     name: &str,
     owner: &dyn OwnerPrompt,
 ) -> Result<Box<dyn PendingRegistration>, RegError> {
+    let code = PairCode::new(&route.cfg.relay_url, &route.cfg.public_relay_url);
+    let room = code.room();
+    let room_hex = hex::encode(room);
     let e_m = x25519_dalek::StaticSecret::random_from_rng(rand::rngs::OsRng);
     let e_pub_m = x25519_dalek::PublicKey::from(&e_m).to_bytes();
-    let offer_id: [u8; 16] = rand::random();
-    let offer = Offer {
-        offer_id: hex::encode(offer_id),
-        e_pub_m: hex::encode(e_pub_m),
-        mac_label: route.cfg.mac_name.clone(),
-    };
     {
-        let offer = offer.clone();
+        let id = room_hex.clone();
         route
             .relay
             .call(|c| {
-                let offer = offer.clone();
-                async move { c.offer(&offer).await }
+                let id = id.clone();
+                async move { c.room_open(&id).await }
             })
             .await
             .map_err(transport)?;
     }
-    // Keep the offer alive while the command runs. The refresher needs its own
-    // relay connection because the lobby refresh must come from the owner key.
+    // Keep the room open while the command runs, on its own connection.
     let refresher = {
         let relay = crate::relay::Relay::new(
             &route.cfg.relay_url,
@@ -154,43 +203,49 @@ pub(crate) async fn run(
             route.keys.relay.clone(),
         )
         .map_err(RegError::Transport)?;
-        let offer = offer.clone();
+        let id = room_hex.clone();
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(REFRESH).await;
-                let offer = offer.clone();
+                let id = id.clone();
                 let _ = relay
                     .call(|c| {
-                        let offer = offer.clone();
-                        async move { c.offer(&offer).await }
+                        let id = id.clone();
+                        async move { c.room_open(&id).await }
                     })
                     .await;
             }
         })
     };
-    let mut lobby = Lobby {
+    let mut seat = Room {
         route,
-        offer_hex: offer.offer_id.clone(),
-        offer_id,
+        room,
+        room_hex,
+        key: code.room_key(),
         peer: None,
         seen: Default::default(),
         refresher,
     };
+    if let Err(e) = seat.send(PHASE_MAC_OFFER, &e_pub_m).await {
+        seat.close().await;
+        return Err(e);
+    }
+    let text = code.text();
     owner
         .status(&format!(
-            "Waiting for the phone: open BOGO → Macs → Add Mac and pick \"{}\".",
-            route.cfg.mac_name
+            "On your iPhone, open BOGO, tap Add Mac and scan this code, or type it:\n\n    {text}\n\n{}",
+            qr(&text)
         ))
         .await;
-    match exchange(&mut lobby, e_m, e_pub_m, name, owner).await {
+    match exchange(&mut seat, e_m, e_pub_m, name, owner).await {
         Ok(p) => Ok(p),
         Err(e) => {
             if matches!(e, RegError::Refused(_)) {
-                // The sealed REFUSED is already in the lobby.
+                // The sealed REFUSED is already in the room.
                 tokio::time::sleep(LINGER).await;
-                lobby.close().await;
+                seat.close().await;
             } else {
-                lobby.abort().await;
+                seat.abort().await;
             }
             Err(e)
         }
@@ -198,33 +253,35 @@ pub(crate) async fn run(
 }
 
 async fn exchange<'a>(
-    lobby: &mut Lobby<'a>,
+    seat: &mut Room<'a>,
     e_m: x25519_dalek::StaticSecret,
     e_pub_m: [u8; 32],
     name: &str,
     owner: &dyn OwnerPrompt,
 ) -> Result<Box<dyn PendingRegistration>, RegError> {
-    let route = lobby.route;
-    let e_pub_p: [u8; 32] = lobby
+    let route = seat.route;
+    let e_pub_p: [u8; 32] = seat
         .next(PHASE_HELLO)
         .await?
         .try_into()
         .map_err(|_| RegError::Aborted("malformed hello".into()))?;
     let n_m: [u8; 16] = rand::random();
     let commit = commitment(&e_pub_m, &e_pub_p, &n_m);
-    lobby.send(PHASE_COMMIT, &commit).await?;
-    let n_p: [u8; 16] = lobby
+    seat.send(PHASE_COMMIT, &commit).await?;
+    let n_p: [u8; 16] = seat
         .next(PHASE_PHONE_NONCE)
         .await?
         .try_into()
         .map_err(|_| RegError::Aborted("malformed phone nonce".into()))?;
-    lobby.send(PHASE_REVEAL, &n_m).await?;
+    seat.send(PHASE_REVEAL, &n_m).await?;
     let shared = e_m.diffie_hellman(&x25519_dalek::PublicKey::from(e_pub_p));
     if !shared.was_contributory() {
         return Err(RegError::Aborted("the phone sent a low-order key".into()));
     }
+    // The room key already proves the phone holds the code, so no digits
+    // need comparing. The transcript is unchanged, with the room ID as offer ID.
     let t = Transcript {
-        offer_id: lobby.offer_id,
+        offer_id: seat.room,
         e_pub_m,
         e_pub_p,
         commit,
@@ -233,10 +290,6 @@ async fn exchange<'a>(
     };
     let th = t.hash();
     let key = phase_key(shared.as_bytes(), &th);
-    let code = t.code();
-    if !owner.confirm_code(&code).await {
-        return Err(RegError::Mismatch);
-    }
     let challenge: [u8; 32] = rand::random();
     let confirmed = MacConfirmed {
         mac_e2e: B(route.keys.e2e_public.to_vec()),
@@ -246,30 +299,29 @@ async fn exchange<'a>(
         challenge: B(challenge.to_vec()),
     };
     let plaintext = serde_json::to_vec(&confirmed).map_err(transport)?;
-    lobby
-        .send(
-            PHASE_MAC_CONFIRMED,
-            &seal_phase(&key, &lobby.offer_id, PHASE_MAC_CONFIRMED, &plaintext),
-        )
-        .await?;
+    seat.send(
+        PHASE_MAC_CONFIRMED,
+        &seal_phase(&key, &seat.room, PHASE_MAC_CONFIRMED, &plaintext),
+    )
+    .await?;
     owner
-        .status("Confirmed on the Mac. Now confirm on the phone with Face ID.")
+        .status("The phone has the code. Confirm on the phone with Face ID.")
         .await;
-    let sealed = lobby.next(PHASE_REG_SUBMIT).await?;
-    let submit: RegSubmit = open_phase(&key, &lobby.offer_id, PHASE_REG_SUBMIT, &sealed)
+    let sealed = seat.next(PHASE_REG_SUBMIT).await?;
+    let submit: RegSubmit = open_phase(&key, &seat.room, PHASE_REG_SUBMIT, &sealed)
         .and_then(|p| serde_json::from_slice(&p).ok())
         .ok_or_else(|| RegError::Aborted("the phone's submission did not open".into()))?;
-    let peer = lobby.peer.clone().unwrap_or_default();
+    let peer = seat.peer.clone().unwrap_or_default();
     let checked = check(route, &submit, &peer, &th, &challenge);
     let new = match checked {
         Ok(new) => new,
         Err(why) => {
             let refused =
                 serde_json::to_vec(&RefusedPhase { why: why.clone() }).unwrap_or_default();
-            let _ = lobby
+            let _ = seat
                 .send(
                     PHASE_REFUSED,
-                    &seal_phase(&key, &lobby.offer_id, PHASE_REFUSED, &refused),
+                    &seal_phase(&key, &seat.room, PHASE_REFUSED, &refused),
                 )
                 .await;
             return Err(RegError::Refused(why));
@@ -291,14 +343,15 @@ async fn exchange<'a>(
         .map_err(|_| RegError::Aborted("bad key".into()))?;
     Ok(Box::new(MacRegistration {
         relay,
-        offer_hex: lobby.offer_hex.clone(),
-        offer_id: lobby.offer_id,
+        room_hex: seat.room_hex.clone(),
+        room: seat.room,
+        room_key: seat.key,
         key,
         new,
         e2e: route.keys.e2e.clone(),
         bogo_id: route.keys.bogo_id,
         phone_e2e,
-        refresher: std::mem::replace(&mut lobby.refresher, tokio::spawn(async {})),
+        refresher: std::mem::replace(&mut seat.refresher, tokio::spawn(async {})),
     }))
 }
 
@@ -306,7 +359,7 @@ async fn exchange<'a>(
 fn check(
     route: &IphoneRoute,
     s: &RegSubmit,
-    lobby_peer: &str,
+    room_peer: &str,
     th: &[u8; 32],
     challenge: &[u8; 32],
 ) -> Result<NewApprover, String> {
@@ -324,8 +377,8 @@ fn check(
         .ok_or("phone relay key must be 32 bytes")?;
     bogo_e2e::public_from(&phone_e2e).map_err(|_| "phone E2E key is invalid")?;
     let mailbox = bogo_relay_proto::mailbox(&phone_relay);
-    if mailbox != lobby_peer {
-        return Err("the submission's relay key is not the phone that joined the offer".into());
+    if mailbox != room_peer {
+        return Err("the submission's relay key is not the phone that joined the room".into());
     }
     if !bogo_verify::verify(
         bogo_verify::P256,
@@ -440,8 +493,9 @@ fn attest(
 
 struct MacRegistration {
     relay: crate::relay::Relay,
-    offer_hex: String,
-    offer_id: [u8; 16],
+    room_hex: String,
+    room: [u8; 16],
+    room_key: [u8; 32],
     key: [u8; 32],
     new: NewApprover,
     e2e: bogo_e2e::SecretKey,
@@ -451,34 +505,22 @@ struct MacRegistration {
 }
 
 impl MacRegistration {
-    async fn lobby_send(&self, phase: u8, plaintext: &[u8]) -> Result<(), RegError> {
-        let msg = LobbySend {
-            msg_id: hex::encode(phase_msg_id(&self.offer_id, phase)),
-            body: hex::encode(phase_body(
-                phase,
-                &seal_phase(&self.key, &self.offer_id, phase, plaintext),
-            )),
-        };
-        let id = self.offer_hex.clone();
-        self.relay
-            .call(|c| {
-                let (id, msg) = (id.clone(), msg.clone());
-                async move { c.lobby_send(&id, &msg).await }
-            })
-            .await
-            .map_err(transport)
+    async fn send_sealed(&self, phase: u8, plaintext: &[u8]) -> Result<(), RegError> {
+        let sealed = seal_phase(&self.key, &self.room, phase, plaintext);
+        room_send(
+            &self.relay,
+            &self.room_hex,
+            &self.room,
+            &self.room_key,
+            phase,
+            &sealed,
+        )
+        .await
     }
 
     async fn close(&self) {
         self.refresher.abort();
-        let id = self.offer_hex.clone();
-        let _ = self
-            .relay
-            .call(|c| {
-                let id = id.clone();
-                async move { c.delete_offer(&id).await }
-            })
-            .await;
+        room_close(&self.relay, &self.room_hex).await;
     }
 }
 
@@ -488,15 +530,15 @@ impl PendingRegistration for MacRegistration {
         &self.new
     }
 
-    /// Answer on the lobby channel and as an envelope in the phone's mailbox,
-    /// which survives if the lobby answer is lost.
+    /// Answer in the room and as an envelope in the phone's mailbox,
+    /// which survives if the room answer is lost.
     async fn answer(self: Box<Self>, committed: &ApproverRecord) -> Result<(), RegError> {
         let registered = RegisteredPhase {
             tx_id: B(committed.tx_id.to_vec()),
             approver_id: B(committed.id.to_vec()),
         };
-        let lobby = self
-            .lobby_send(
+        let in_room = self
+            .send_sealed(
                 PHASE_REGISTERED,
                 &serde_json::to_vec(&registered).map_err(transport)?,
             )
@@ -528,12 +570,12 @@ impl PendingRegistration for MacRegistration {
                 async move { c.send(&to, id, &envelope).await }
             })
             .await;
-        // Give the phone a moment to read the lobby answer, then close the
-        // offer. A phone that misses both gets `registered` again on every
+        // Give the phone a moment to read the room answer, then close the
+        // room. A phone that misses both gets `registered` again on every
         // boot, or by asking with `regResend`.
         tokio::time::sleep(LINGER).await;
         self.close().await;
-        match (lobby, mailbox) {
+        match (in_room, mailbox) {
             (Err(e), Err(_)) => Err(e),
             _ => Ok(()),
         }
@@ -541,7 +583,7 @@ impl PendingRegistration for MacRegistration {
 
     async fn refuse(self: Box<Self>, why: &str) {
         let refused = serde_json::to_vec(&RefusedPhase { why: why.into() }).unwrap_or_default();
-        if self.lobby_send(PHASE_REFUSED, &refused).await.is_ok() {
+        if self.send_sealed(PHASE_REFUSED, &refused).await.is_ok() {
             tokio::time::sleep(LINGER).await;
         }
         self.close().await;

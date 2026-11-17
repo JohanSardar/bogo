@@ -35,8 +35,12 @@ pub struct Server {
 #[serde(deny_unknown_fields)]
 pub struct Relay {
     pub url: String,
-    pub max_message_age: Option<String>,
-    pub mailbox_capacity: Option<i64>,
+    /// Older files set these here. The relay owns retention and capacity, so
+    /// they are accepted and ignored.
+    #[serde(default, rename = "max_message_age")]
+    pub _max_message_age: Option<serde::de::IgnoredAny>,
+    #[serde(default, rename = "mailbox_capacity")]
+    pub _mailbox_capacity: Option<serde::de::IgnoredAny>,
 }
 
 #[derive(Deserialize)]

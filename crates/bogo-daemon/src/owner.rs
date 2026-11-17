@@ -4,7 +4,6 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    io::Write,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
 };
@@ -115,10 +114,9 @@ policy = "approve"
 hide_denied = true
 # max_pending = OWNER_SETS_INTEGER
 # Add upstreams with `bogo upstream add` or edit this file.
+# BOGO uses the free public relay. To use your own, see docs/self-hosting-relay.md:
 # [relay]
-# url = "https://bogo.eilmer.si:8443"
-# max_message_age = "OWNER_SETS_DURATION"
-# mailbox_capacity = OWNER_SETS_INTEGER
+# url = "https://relay.example.com"
 # [apns]
 # key = { secret = "apns_p8" }
 # key_id = "OWNER_SETS"
@@ -504,23 +502,6 @@ pub async fn request(root: &Path, c: Command) -> Result<Value> {
             eprintln!("{s}");
             continue;
         }
-        if let Some(code) = v.get("confirm_code").and_then(Value::as_str) {
-            eprint!("Does the approver show {code}? [y/N] ");
-            std::io::stderr().flush().map_err(error)?;
-            let answer = tokio::task::spawn_blocking(|| {
-                let mut s = String::new();
-                std::io::stdin()
-                    .read_line(&mut s)
-                    .map(|_| matches!(s.trim(), "y" | "Y" | "yes"))
-            })
-            .await
-            .map_err(error)?
-            .map_err(error)?;
-            w.write_all(format!("{}\n", json!({"confirmed":answer})).as_bytes())
-                .await
-                .map_err(error)?;
-            continue;
-        }
         if let Some(e) = v.get("error").and_then(Value::as_str) {
             return Err(e.into());
         }
@@ -559,18 +540,6 @@ impl RemotePrompt {
 impl OwnerPrompt for RemotePrompt {
     async fn status(&self, s: &str) {
         let _ = self.send(json!({"status":s})).await;
-    }
-    async fn confirm_code(&self, code: &str) -> bool {
-        if self.send(json!({"confirm_code":code})).await.is_err() {
-            return false;
-        }
-        let mut r = self.r.lock().await;
-        tokio::time::timeout(std::time::Duration::from_secs(120), line(&mut *r))
-            .await
-            .ok()
-            .and_then(|r| r.ok())
-            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-            .is_some_and(|v| v["confirmed"] == true)
     }
 }
 impl Shell {
@@ -945,7 +914,7 @@ pub async fn serve(root: &Path) -> Result<()> {
         soft
     };
     if let Some(iphone) = &config.iphone {
-        let relay = config.relay.as_ref().ok_or("iPhone requires relay")?;
+        let relay = &config.relay;
         let relay_url = url::Url::parse(&relay.url).map_err(|_| "invalid relay URL")?;
         let apns = config
             .apns
@@ -966,8 +935,15 @@ pub async fn serve(root: &Path) -> Result<()> {
         let route = bogo_approver_iphone::IphoneRoute::new(
             bogo_approver_iphone::Config {
                 relay_url: relay.url.clone(),
-                relay_service: relay_url[url::Position::BeforeHost..url::Position::AfterPort]
-                    .into(),
+                public_relay_url: bogo_config::PUBLIC_RELAY.into(),
+                // host:port, the port always written, as the phone and relay do.
+                relay_service: format!(
+                    "{}:{}",
+                    relay_url.host_str().ok_or("invalid relay URL")?,
+                    relay_url
+                        .port_or_known_default()
+                        .ok_or("invalid relay URL")?
+                ),
                 relay_root_pem: std::env::var_os("BOGO_RELAY_CA")
                     .map(std::fs::read)
                     .transpose()
