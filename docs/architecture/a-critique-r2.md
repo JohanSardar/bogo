@@ -66,7 +66,7 @@ The request type also replaces optional MCP arguments with a mandatory `JVal`, w
 
 The validation checklist is also behind [Apple's current procedure](https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server), which includes `validationCategory` and `appVersion` in addition to certificate, nonce, App ID, AAGUID and key checks. Merely accepting both development and production AAGUIDs is not an accepted-build policy. The repository currently uses a development identity; that discoverable fact is not a decision to trust development registrations in normal BOGO.
 
-**Fix:** Validate the complete supported Apple procedure and the accepted distribution/version evidence; separate development from normal registrations. State the genuine-app/key-enforcement assumption. The bundle/team values are already discoverable in [project.yml](/Users/johansardar/apple-bridge-iphone/ios/project.yml:3); the owner question is the acceptable distribution/trust policy, not those identifiers.
+**Fix:** Validate the complete supported Apple procedure and the accepted distribution/version evidence; separate development from normal registrations. State the genuine-app/key-enforcement assumption. The bundle/team values are already discoverable in [project.yml](https://github.com/JohanSardar/apple-bridge-iphone/blob/c1c01798743dd29fcc72a5aca6ca7b75d1a70471/ios/project.yml#L3); the owner question is the acceptable distribution/trust policy, not those identifiers.
 
 ## 9. The pure-core proof still requires a faithful boundary
 

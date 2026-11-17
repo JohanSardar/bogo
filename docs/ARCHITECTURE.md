@@ -684,10 +684,10 @@ Envelope := "BOGOE2E" 0x00 | u8 version=1 | u8 direction | u8 type | 16 bytes ms
 
 ### 3.14 Host app changes (apple-bridge-iphone)
 
-- **Tab.** `ShellTab.approvals` ([ShellModel.swift](/Users/johansardar/apple-bridge-iphone/ios/App/ShellModel.swift:10)) becomes `.bogo`, titled "BOGO", and renders `BogoSection.tab`.
-- **Removed.** The Approvals capability ([ApprovalsCapability.swift](/Users/johansardar/apple-bridge-iphone/ios/Capabilities/Approvals/ApprovalsCapability.swift), [ApprovalInbox.swift](/Users/johansardar/apple-bridge-iphone/ios/Capabilities/Approvals/ApprovalInbox.swift)), its screens and notification actions, and its entry in `Capabilities`.
-- **Old approval jobs.** In `PushDelivery`, the `bridge.approval` branch ([PushDelivery.swift](/Users/johansardar/apple-bridge-iphone/ios/Delivery/PushDelivery.swift:125)) just `continue`s, with no delivery and no result, so those jobs expire on the unchanged Mac.
-- **Capture.** `CaptureCapability`'s deferred handlers ([CaptureCapability.swift](/Users/johansardar/apple-bridge-iphone/ios/Capabilities/Capture/CaptureCapability.swift:6)) are removed. `CommandHandlers.handler(for:)` ([CommandHandlers.swift](/Users/johansardar/apple-bridge-iphone/ios/Delivery/CommandHandlers.swift:7)) then returns `nil` for `iphone.capture.*`, and the existing path answers rejected, so capture always comes back denied. The descriptor stays, with `available: false`.
+- **Tab.** `ShellTab.approvals` ([ShellModel.swift](https://github.com/JohanSardar/apple-bridge-iphone/blob/c1c01798743dd29fcc72a5aca6ca7b75d1a70471/ios/App/ShellModel.swift#L10)) becomes `.bogo`, titled "BOGO", and renders `BogoSection.tab`.
+- **Removed.** The Approvals capability ([ApprovalsCapability.swift](https://github.com/JohanSardar/apple-bridge-iphone/blob/c1c01798743dd29fcc72a5aca6ca7b75d1a70471/ios/Capabilities/Approvals/ApprovalsCapability.swift), [ApprovalInbox.swift](https://github.com/JohanSardar/apple-bridge-iphone/blob/c1c01798743dd29fcc72a5aca6ca7b75d1a70471/ios/Capabilities/Approvals/ApprovalInbox.swift)), its screens and notification actions, and its entry in `Capabilities`.
+- **Old approval jobs.** In `PushDelivery`, the `bridge.approval` branch ([PushDelivery.swift](https://github.com/JohanSardar/apple-bridge-iphone/blob/c1c01798743dd29fcc72a5aca6ca7b75d1a70471/ios/Delivery/PushDelivery.swift#L125)) just `continue`s, with no delivery and no result, so those jobs expire on the unchanged Mac.
+- **Capture.** `CaptureCapability`'s deferred handlers ([CaptureCapability.swift](https://github.com/JohanSardar/apple-bridge-iphone/blob/c1c01798743dd29fcc72a5aca6ca7b75d1a70471/ios/Capabilities/Capture/CaptureCapability.swift#L6)) are removed. `CommandHandlers.handler(for:)` ([CommandHandlers.swift](https://github.com/JohanSardar/apple-bridge-iphone/blob/c1c01798743dd29fcc72a5aca6ca7b75d1a70471/ios/Delivery/CommandHandlers.swift#L7)) then returns `nil` for `iphone.capture.*`, and the existing path answers rejected, so capture always comes back denied. The descriptor stays, with `available: false`.
 - **`BridgeAppDelegate`:**
   - token registration also calls `bogo.pushTokenChanged`,
   - remote notifications and notification responses ask `bogo.owns` first, and everything else follows the existing path,
@@ -890,7 +890,7 @@ approve_arm_delay = <owner sets>     # the review screen's short delay
 command = "link-cli"; args = ["--mcp"]
 env = { LINK_AUTH_FILE = { secret = "link_auth" } }   # secrets.toml: link_auth = { path = "~/.bogo/upstreams/stripe/auth.json" }
 [upstreams.files]
-command = "npx"; args = ["-y", "@modelcontextprotocol/server-filesystem@<pinned>", "/Users/johansardar/bogo-test"]
+command = "npx"; args = ["-y", "@modelcontextprotocol/server-filesystem@<pinned>", "/Users/you/bogo-test"]
 # remote: url = "https://…/mcp", headers = { Authorization = { secret = "tok" } }
 [defaults]
 policy = "approve"; hide_denied = true   # "approve" or "deny"

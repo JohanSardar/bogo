@@ -1,0 +1,59 @@
+name: Bug report
+description: Something in BOGO doesn't work as documented, on the Mac or in the BOGO tab on the phone.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Found a security problem? Don't file it here. [Report it privately](https://github.com/JohanSardar/bogo/security/advisories/new) instead.
+
+        Before you paste anything, remove agent tokens, secrets and private tool arguments. `bogo log` output contains call arguments.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Which part?
+      options:
+        - Daemon (bogo-daemon, bogo serve)
+        - CLI (bogo)
+        - MCP front or bogo-shim
+        - Relay
+        - BOGO tab in the iPhone app
+        - Lean core or proofs
+        - Reference sandbox
+        - Docs
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Commands you ran, the relevant part of bogo.toml, and the agent or MCP client you used.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output and logs
+      description: |
+        Mac: the daemon's output (`~/.bogo/run/stderr.log` and `stdout.log` when started with `bogo start`), `bogo status`, `bogo log verify`, and `bogo log search TOOL` for the call, with arguments removed if private.
+        iPhone: Settings → Diagnostics in the app, and screenshots.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The commit you built from (`git rev-parse --short HEAD`), and the iPhone app build if the phone is involved.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: macOS and iOS versions

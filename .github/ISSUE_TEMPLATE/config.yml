@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a vulnerability privately
+    url: https://github.com/JohanSardar/bogo/security/advisories/new
+    about: Security problems go here, never in a public issue.
+  - name: Apple Bridge iPhone app (not the BOGO tab)
+    url: https://github.com/JohanSardar/apple-bridge-iphone/issues
+    about: Bugs in the iPhone app outside the BOGO tab go to its own repo.
+  - name: Questions
+    url: https://github.com/JohanSardar/bogo/blob/main/docs/faq.md
+    about: Check the FAQ first.
