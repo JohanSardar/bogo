@@ -18,7 +18,9 @@ impl Serialize for B {
 impl<'de> Deserialize<'de> for B {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<B, D::Error> {
         let s = String::deserialize(d)?;
-        hex::decode(s.to_ascii_lowercase()).map(B).map_err(serde::de::Error::custom)
+        hex::decode(s.to_ascii_lowercase())
+            .map(B)
+            .map_err(serde::de::Error::custom)
     }
 }
 impl B {
@@ -30,14 +32,38 @@ impl B {
 /// Mac → phone envelope payloads. The JSON `type` must agree with the
 /// envelope header's type byte ([`MacMsg::kind`]).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum MacMsg {
-    Request { req_id: B, boot_seq: u64, bytes: B, pause_epoch: u64, arm_delay_ms: u64 },
-    Settled { req_id: B },
-    Ended { req_id: B, why: String },
-    Boot { boot_seq: u64, boot_id: B },
-    Outcome { req_id: B, outcome: String },
-    Registered { tx_id: B, approver_id: B },
+    Request {
+        req_id: B,
+        boot_seq: u64,
+        bytes: B,
+        pause_epoch: u64,
+        arm_delay_ms: u64,
+    },
+    Settled {
+        req_id: B,
+    },
+    Ended {
+        req_id: B,
+        why: String,
+    },
+    Boot {
+        boot_seq: u64,
+        boot_id: B,
+    },
+    Outcome {
+        req_id: B,
+        outcome: String,
+    },
+    Registered {
+        tx_id: B,
+        approver_id: B,
+    },
     RevokedAck {},
 }
 
@@ -57,15 +83,42 @@ impl MacMsg {
 
 /// Phone → Mac envelope payloads.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum PhoneMsg {
-    Approval { req_id: B, alg: u16, sig: B },
-    Denial { req_id: B, #[serde(default)] note: Option<String> },
-    Pause { agent_id: B, epoch: u64 },
-    Seen { req_id: B },
-    PushToken { token_seq: u64, token: B, env: String, #[serde(default)] encoding_versions: Vec<u16> },
-    Sync { req_ids: Vec<B> },
-    RegResend { tx_id: B },
+    Approval {
+        req_id: B,
+        alg: u16,
+        sig: B,
+    },
+    Denial {
+        req_id: B,
+        #[serde(default)]
+        note: Option<String>,
+    },
+    Pause {
+        agent_id: B,
+        epoch: u64,
+    },
+    Seen {
+        req_id: B,
+    },
+    PushToken {
+        token_seq: u64,
+        token: B,
+        env: String,
+        #[serde(default)]
+        encoding_versions: Vec<u16>,
+    },
+    Sync {
+        req_ids: Vec<B>,
+    },
+    RegResend {
+        tx_id: B,
+    },
     Removed {},
 }
 
@@ -174,7 +227,8 @@ pub fn pop_message(transcript_hash: &[u8; 32], challenge: &[u8; 32]) -> Vec<u8> 
 pub fn phase_key(shared: &[u8; 32], transcript_hash: &[u8; 32]) -> [u8; 32] {
     let hk = hkdf::Hkdf::<Sha256>::new(Some(transcript_hash), shared);
     let mut k = [0u8; 32];
-    hk.expand(b"bogo-reg-key/v1", &mut k).expect("32 bytes is a valid HKDF length");
+    hk.expand(b"bogo-reg-key/v1", &mut k)
+        .expect("32 bytes is a valid HKDF length");
     k
 }
 
@@ -193,14 +247,28 @@ pub fn seal_phase(key: &[u8; 32], offer_id: &[u8; 16], phase: u8, plaintext: &[u
     let aead = ChaCha20Poly1305::new(key.into());
     aead.encrypt(
         &phase_nonce(phase).into(),
-        Payload { msg: plaintext, aad: &phase_aad(offer_id, phase) },
+        Payload {
+            msg: plaintext,
+            aad: &phase_aad(offer_id, phase),
+        },
     )
     .expect("ChaCha20-Poly1305 sealing does not fail")
 }
 
-pub fn open_phase(key: &[u8; 32], offer_id: &[u8; 16], phase: u8, sealed: &[u8]) -> Option<Vec<u8>> {
+pub fn open_phase(
+    key: &[u8; 32],
+    offer_id: &[u8; 16],
+    phase: u8,
+    sealed: &[u8],
+) -> Option<Vec<u8>> {
     ChaCha20Poly1305::new(key.into())
-        .decrypt(&phase_nonce(phase).into(), Payload { msg: sealed, aad: &phase_aad(offer_id, phase) })
+        .decrypt(
+            &phase_nonce(phase).into(),
+            Payload {
+                msg: sealed,
+                aad: &phase_aad(offer_id, phase),
+            },
+        )
         .ok()
 }
 

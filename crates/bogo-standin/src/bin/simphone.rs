@@ -165,14 +165,25 @@ impl Phone {
         let body = body.unwrap_or_else(|| serde_json::to_string(msg).expect("message serializes"));
         // A resend under the same message ID must be the same bytes, or the
         // relay refuses it as a conflict while the first copy is queued.
-        let sealed = self.store.outbox.iter().find(|o| o.msg_id.0 == id && o.body == body);
+        let sealed = self
+            .store
+            .outbox
+            .iter()
+            .find(|o| o.msg_id.0 == id && o.body == body);
         let envelope = match sealed {
             Some(o) => o.envelope.0.clone(),
             None => self.seal(&mac, msg, id, &body)?,
         };
         let n = self.store.outbox.len() + 1;
         let kind = body_kind(&body);
-        self.store.outbox.push(Out { n, msg_id: B(id.to_vec()), kind, body, envelope: B(envelope), sent: false });
+        self.store.outbox.push(Out {
+            n,
+            msg_id: B(id.to_vec()),
+            kind,
+            body,
+            envelope: B(envelope),
+            sent: false,
+        });
         Some(n)
     }
 
@@ -183,7 +194,11 @@ impl Phone {
             &bogo_e2e::public_from(&mac.mac_e2e.0).ok()?,
             &mac.bogo_id.array()?,
             &mac.approver_id.array()?,
-            Header { direction: Direction::PhoneToMac, kind: msg.kind(), id },
+            Header {
+                direction: Direction::PhoneToMac,
+                kind: msg.kind(),
+                id,
+            },
             body.as_bytes(),
         )
         .ok()
@@ -227,10 +242,16 @@ async fn connect(args: &Args, key: &SigningKey) -> Result<Client, String> {
     let root = args
         .relay_ca
         .as_ref()
-        .map(|p| std::fs::read(p).map_err(|e| e.to_string()).and_then(|b| reqwest::Certificate::from_pem(&b).map_err(|e| e.to_string())))
+        .map(|p| {
+            std::fs::read(p)
+                .map_err(|e| e.to_string())
+                .and_then(|b| reqwest::Certificate::from_pem(&b).map_err(|e| e.to_string()))
+        })
         .transpose()?;
     let http = Client::http(root).map_err(|e| e.to_string())?;
-    Client::connect(&args.relay, &args.relay_service, key, http).await.map_err(|e| e.to_string())
+    Client::connect(&args.relay, &args.relay_service, key, http)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tokio::main]
@@ -250,26 +271,56 @@ async fn run(args: Args) -> Result<(), String> {
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default();
     if store.relay_seed.0.len() != 32 {
-        store.relay_seed = B(SigningKey::generate(&mut rand::rngs::OsRng).to_bytes().to_vec());
+        store.relay_seed = B(SigningKey::generate(&mut rand::rngs::OsRng)
+            .to_bytes()
+            .to_vec());
     }
     let key = SigningKey::from_bytes(&store.relay_seed.array().ok_or("bad relay seed")?);
-    let phone = Arc::new(Mutex::new(Phone { path, store, held: false, app: args.app_data.clone() }));
+    let phone = Arc::new(Mutex::new(Phone {
+        path,
+        store,
+        held: false,
+        app: args.app_data.clone(),
+    }));
     phone.lock().await.save();
     let client = Arc::new(connect(&args, &key).await?);
     let mailbox = client.mailbox.clone();
-    println!("BOGO sim phone — store {} — relay mailbox {}", args.store.display(), &mailbox[..16]);
+    println!(
+        "BOGO sim phone — store {} — relay mailbox {}",
+        args.store.display(),
+        &mailbox[..16]
+    );
     if let Some(app) = &args.app_data {
         println!("  bridging the Simulator app at {}", app.display());
     }
     if let Some(mac) = phone.lock().await.mac() {
-        println!("  registered Mac: {} ({}), state {}", mac.name, short(&mac.bogo_id.0), mac.state);
+        println!(
+            "  registered Mac: {} ({}), state {}",
+            mac.name,
+            short(&mac.bogo_id.0),
+            mac.state
+        );
         if mac.state != "gone" {
-            client.allow(vec![mac.mac_mailbox.clone()]).await.map_err(|e| e.to_string())?;
+            client
+                .allow(vec![mac.mac_mailbox.clone()])
+                .await
+                .map_err(|e| e.to_string())?;
         }
     }
-    let attestation = args.attestation_file.as_ref().map(std::fs::read).transpose().map_err(|e| e.to_string())?;
+    let attestation = args
+        .attestation_file
+        .as_ref()
+        .map(std::fs::read)
+        .transpose()
+        .map_err(|e| e.to_string())?;
     let push = match &args.push_token {
-        Some(t) => Some((B(hex::decode(t).ok().filter(|t| t.len() == 32).ok_or("--push-token must be 64 hex")?), args.push_env.clone())),
+        Some(t) => Some((
+            B(hex::decode(t)
+                .ok()
+                .filter(|t| t.len() == 32)
+                .ok_or("--push-token must be 64 hex")?),
+            args.push_env.clone(),
+        )),
         None => None,
     };
     let ctx = Arc::new(Ctx {
@@ -282,8 +333,13 @@ async fn run(args: Args) -> Result<(), String> {
     });
     // Reconnect loop for the inbound side: one long-poll at a time.
     {
-        let (ctx, args_relay, args_service, ca, seed) =
-            (ctx.clone(), args.relay.clone(), args.relay_service.clone(), args.relay_ca.clone(), key.clone());
+        let (ctx, args_relay, args_service, ca, seed) = (
+            ctx.clone(),
+            args.relay.clone(),
+            args.relay_service.clone(),
+            args.relay_ca.clone(),
+            key.clone(),
+        );
         tokio::spawn(async move {
             let args = Args {
                 store: PathBuf::new(),
@@ -323,7 +379,13 @@ async fn run(args: Args) -> Result<(), String> {
         });
     }
     loop {
-        let line = ctx.lines.lock().await.next_line().await.map_err(|e| e.to_string())?;
+        let line = ctx
+            .lines
+            .lock()
+            .await
+            .next_line()
+            .await
+            .map_err(|e| e.to_string())?;
         let Some(line) = line else { break };
         if line.trim().is_empty() {
             continue;
@@ -346,7 +408,12 @@ async fn flush(ctx: &Ctx) {
         }
         let Some(mac) = p.mac() else { return };
         let to = mac.mac_mailbox.clone();
-        p.store.outbox.iter().filter(|o| !o.sent).map(|o| (o.n, o.clone(), to.clone())).collect()
+        p.store
+            .outbox
+            .iter()
+            .filter(|o| !o.sent)
+            .map(|o| (o.n, o.clone(), to.clone()))
+            .collect()
     };
     for (n, o, to) in pending {
         if send(ctx, &o, &to).await {
@@ -361,7 +428,9 @@ async fn flush(ctx: &Ctx) {
 }
 
 async fn send(ctx: &Ctx, o: &Out, to: &str) -> bool {
-    let Some(id) = o.msg_id.array::<16>() else { return false };
+    let Some(id) = o.msg_id.array::<16>() else {
+        return false;
+    };
     ctx.client.send(to, id, &o.envelope.0).await.is_ok()
 }
 
@@ -369,11 +438,15 @@ async fn send(ctx: &Ctx, o: &Out, to: &str) -> bool {
 async fn tail_app(ctx: &Ctx) {
     let mut p = ctx.phone.lock().await;
     let Some(app) = p.app.clone() else { return };
-    if p.mac().is_none_or(|m| m.state == "gone" || m.state == "waiting") {
+    if p.mac()
+        .is_none_or(|m| m.state == "gone" || m.state == "waiting")
+    {
         return;
     }
     let file = app.join("Library/Application Support/BOGO/stand-in/received.jsonl");
-    let Ok(text) = std::fs::read_to_string(&file) else { return };
+    let Ok(text) = std::fs::read_to_string(&file) else {
+        return;
+    };
     let lines: Vec<&str> = text.lines().collect();
     let start = match p.store.app_lines {
         Some(n) if n <= lines.len() => n,
@@ -383,9 +456,15 @@ async fn tail_app(ctx: &Ctx) {
     p.store.app_lines = Some(start);
     for line in &lines[start..] {
         p.store.app_lines = p.store.app_lines.map(|n| n + 1);
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
-        let (Some(body), Some(id)) = (v["body"].as_str(), v["msgId"].as_str()) else { continue };
-        let Ok(msg) = serde_json::from_str::<PhoneMsg>(body) else { continue };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let (Some(body), Some(id)) = (v["body"].as_str(), v["msgId"].as_str()) else {
+            continue;
+        };
+        let Ok(msg) = serde_json::from_str::<PhoneMsg>(body) else {
+            continue;
+        };
         let id: [u8; 16] = match hex::decode(id).ok().and_then(|b| b.try_into().ok()) {
             Some(id) => id,
             None => Sha256::digest(id.as_bytes())[..16].try_into().expect("16"),
@@ -403,7 +482,11 @@ async fn tail_app(ctx: &Ctx) {
             r.decision = Some(msg_kind(&msg).into());
         }
         if let Some(n) = p.enqueue(&msg, id, Some(body.to_string())) {
-            println!("  app → #{n} {} (the app's own message {}, forwarded unchanged)", msg_kind(&msg), short(&id));
+            println!(
+                "  app → #{n} {} (the app's own message {}, forwarded unchanged)",
+                msg_kind(&msg),
+                short(&id)
+            );
         }
     }
     p.save();
@@ -429,13 +512,22 @@ async fn inbound(ctx: &Ctx, client: &Client) -> Result<(), String> {
         let mut p = ctx.phone.lock().await;
         if p.store.done.contains(&m.msg_id) {
             drop(p);
-            client.ack(vec![m.msg_id.clone()]).await.map_err(|e| e.to_string())?;
-            println!("  ← duplicate {} already applied; acknowledged again", &m.msg_id[..12]);
+            client
+                .ack(vec![m.msg_id.clone()])
+                .await
+                .map_err(|e| e.to_string())?;
+            println!(
+                "  ← duplicate {} already applied; acknowledged again",
+                &m.msg_id[..12]
+            );
             continue;
         }
         let Some(mac) = p.mac().cloned().filter(|mac| mac.mac_mailbox == m.from) else {
             drop(p);
-            client.ack(vec![m.msg_id]).await.map_err(|e| e.to_string())?;
+            client
+                .ack(vec![m.msg_id])
+                .await
+                .map_err(|e| e.to_string())?;
             continue;
         };
         let opened = (|| {
@@ -455,15 +547,26 @@ async fn inbound(ctx: &Ctx, client: &Client) -> Result<(), String> {
         let Some(msg) = opened else {
             println!("  ← dropped an envelope that failed to open");
             drop(p);
-            client.ack(vec![m.msg_id]).await.map_err(|e| e.to_string())?;
+            client
+                .ack(vec![m.msg_id])
+                .await
+                .map_err(|e| e.to_string())?;
             continue;
         };
         let own = mac.approval_key.0.len() == 32;
         print!("  [{}]", &m.msg_id[..8]);
         match msg {
-            MacMsg::Request { req_id, boot_seq, bytes, pause_epoch, arm_delay_ms } => {
+            MacMsg::Request {
+                req_id,
+                boot_seq,
+                bytes,
+                pause_epoch,
+                arm_delay_ms,
+            } => {
                 let late = p.rec(&req_id.0).map(|r| r.phase.clone());
-                let fresh = late.as_ref().is_none_or(|_| p.rec(&req_id.0).is_some_and(|r| r.bytes.0.is_empty()));
+                let fresh = late
+                    .as_ref()
+                    .is_none_or(|_| p.rec(&req_id.0).is_some_and(|r| r.bytes.0.is_empty()));
                 if fresh {
                     let mut phase = late.clone().unwrap_or_else(|| "pending".into());
                     let mut detail = p.rec(&req_id.0).and_then(|r| r.detail.clone());
@@ -484,7 +587,11 @@ async fn inbound(ctx: &Ctx, client: &Client) -> Result<(), String> {
                     println!(
                         "  ← request #{n} {} (boot {boot_seq}, epoch {pause_epoch}, arm {arm_delay_ms} ms){}",
                         short(&req_id.0),
-                        if phase == "pending" { String::new() } else { format!(" — arrived after its end: shown greyed ({phase})") }
+                        if phase == "pending" {
+                            String::new()
+                        } else {
+                            format!(" — arrived after its end: shown greyed ({phase})")
+                        }
                     );
                     if p.app.is_some() {
                         p.app_inbox(serde_json::json!({ "hex": hex::encode(&bytes.0) }));
@@ -492,7 +599,13 @@ async fn inbound(ctx: &Ctx, client: &Client) -> Result<(), String> {
                     }
                 }
                 if own {
-                    p.enqueue(&PhoneMsg::Seen { req_id: req_id.clone() }, bogo_e2e::message_id(), None);
+                    p.enqueue(
+                        &PhoneMsg::Seen {
+                            req_id: req_id.clone(),
+                        },
+                        bogo_e2e::message_id(),
+                        None,
+                    );
                 }
             }
             MacMsg::Settled { req_id } => {
@@ -507,12 +620,18 @@ async fn inbound(ctx: &Ctx, client: &Client) -> Result<(), String> {
                 if outcome != "live" {
                     p.apply(&req_id.0, "outcome", Some(outcome.clone()));
                 }
-                println!("  ← outcome {} = {outcome}{}", short(&req_id.0), app_note(&p));
+                println!(
+                    "  ← outcome {} = {outcome}{}",
+                    short(&req_id.0),
+                    app_note(&p)
+                );
             }
             MacMsg::Boot { boot_seq, boot_id } => {
                 let current = p.mac().map_or(0, |m| m.boot_seq);
                 if boot_seq > current {
-                    for r in p.store.records.iter_mut().filter(|r| r.boot_seq < boot_seq && r.phase == "pending" && !r.bytes.0.is_empty()) {
+                    for r in p.store.records.iter_mut().filter(|r| {
+                        r.boot_seq < boot_seq && r.phase == "pending" && !r.bytes.0.is_empty()
+                    }) {
                         r.phase = "ended".into();
                         r.detail = Some("otherBoot".into());
                     }
@@ -523,16 +642,30 @@ async fn inbound(ctx: &Ctx, client: &Client) -> Result<(), String> {
                         .store
                         .records
                         .iter()
-                        .filter(|r| r.phase == "sent" || (r.phase == "settled" && matches!(r.decision.as_deref(), Some("approval" | "approve"))))
+                        .filter(|r| {
+                            r.phase == "sent"
+                                || (r.phase == "settled"
+                                    && matches!(
+                                        r.decision.as_deref(),
+                                        Some("approval" | "approve")
+                                    ))
+                        })
                         .map(|r| r.req_id.clone())
                         .collect();
                     if !open.is_empty() && own {
-                        p.enqueue(&PhoneMsg::Sync { req_ids: open }, bogo_e2e::message_id(), None);
+                        p.enqueue(
+                            &PhoneMsg::Sync { req_ids: open },
+                            bogo_e2e::message_id(),
+                            None,
+                        );
                     }
                     if p.app.is_some() {
                         p.app_inbox(serde_json::json!({ "boot": true }));
                     }
-                    println!("  ← boot {boot_seq} ({}): requests from earlier boots ended", short(&boot_id.0));
+                    println!(
+                        "  ← boot {boot_seq} ({}): requests from earlier boots ended",
+                        short(&boot_id.0)
+                    );
                 } else {
                     println!("  ← boot {boot_seq} (not newer; nothing to do)");
                 }
@@ -560,7 +693,10 @@ async fn inbound(ctx: &Ctx, client: &Client) -> Result<(), String> {
         p.store.done.push(m.msg_id.clone());
         p.save();
         drop(p);
-        client.ack(vec![m.msg_id]).await.map_err(|e| e.to_string())?;
+        client
+            .ack(vec![m.msg_id])
+            .await
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -575,7 +711,15 @@ fn app_note(p: &Phone) -> &'static str {
 
 async fn ask(ctx: &Ctx, prompt: &str) -> bool {
     println!("{prompt} [y/N]");
-    let a = ctx.lines.lock().await.next_line().await.ok().flatten().unwrap_or_default();
+    let a = ctx
+        .lines
+        .lock()
+        .await
+        .next_line()
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     println!("  answered {a:?}");
     matches!(a.trim(), "y" | "Y" | "yes")
 }
@@ -583,7 +727,10 @@ async fn ask(ctx: &Ctx, prompt: &str) -> bool {
 fn app_key(app: &Path) -> Result<(p256::ecdsa::SigningKey, String), String> {
     let dir = app.join("Library/Application Support/BOGO/simulator-keys");
     let newest = std::fs::read_dir(&dir)
-        .map_err(|_| "no simulator key yet: add the stand-in Mac in the app first (BOGO → Macs → Add Mac)".to_string())?
+        .map_err(|_| {
+            "no simulator key yet: add the stand-in Mac in the app first (BOGO → Macs → Add Mac)"
+                .to_string()
+        })?
         .filter_map(Result::ok)
         .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
         .max()
@@ -591,17 +738,32 @@ fn app_key(app: &Path) -> Result<(p256::ecdsa::SigningKey, String), String> {
         .1;
     let raw = std::fs::read(&newest).map_err(|e| e.to_string())?;
     let key = p256::ecdsa::SigningKey::from_slice(&raw).map_err(|e| e.to_string())?;
-    Ok((key, newest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()))
+    Ok((
+        key,
+        newest
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    ))
 }
 
-async fn lobby_wait(client: &Client, offer: &str, offer_id: &[u8; 16], want: u8) -> Result<Vec<u8>, String> {
+async fn lobby_wait(
+    client: &Client,
+    offer: &str,
+    offer_id: &[u8; 16],
+    want: u8,
+) -> Result<Vec<u8>, String> {
     for _ in 0..2000 {
         let msgs = match client.lobby_fetch(offer).await {
-            Err(bogo_relay_proto::Error::Status(404)) => return Err("the Mac closed the offer".into()),
+            Err(bogo_relay_proto::Error::Status(404)) => {
+                return Err("the Mac closed the offer".into());
+            }
             other => other.map_err(|e| e.to_string())?,
         };
         for m in msgs {
-            let Ok(body) = hex::decode(&m.body) else { continue };
+            let Ok(body) = hex::decode(&m.body) else {
+                continue;
+            };
             let Some(&phase) = body.first() else { continue };
             if m.msg_id != hex::encode(phase_msg_id(offer_id, phase)) {
                 continue;
@@ -618,11 +780,20 @@ async fn lobby_wait(client: &Client, offer: &str, offer_id: &[u8; 16], want: u8)
     Err("timed out".into())
 }
 
-async fn lobby_send(client: &Client, offer: &str, offer_id: &[u8; 16], phase: u8, payload: &[u8]) -> Result<(), String> {
+async fn lobby_send(
+    client: &Client,
+    offer: &str,
+    offer_id: &[u8; 16],
+    phase: u8,
+    payload: &[u8],
+) -> Result<(), String> {
     client
         .lobby_send(
             offer,
-            &LobbySend { msg_id: hex::encode(phase_msg_id(offer_id, phase)), body: hex::encode(phase_body(phase, payload)) },
+            &LobbySend {
+                msg_id: hex::encode(phase_msg_id(offer_id, phase)),
+                body: hex::encode(phase_body(phase, payload)),
+            },
         )
         .await
         .map_err(|e| e.to_string())
@@ -635,17 +806,30 @@ async fn add(ctx: &Ctx, label: &str) -> Result<(), String> {
         .iter()
         .find(|o| label.is_empty() || o.offer.mac_label == label)
         .ok_or("no open offer: run `register <name>` on the Mac first")?;
-    println!("  Add Mac: \"{}\" (offer opened {}s ago)", o.offer.mac_label, o.age_seconds);
+    println!(
+        "  Add Mac: \"{}\" (offer opened {}s ago)",
+        o.offer.mac_label, o.age_seconds
+    );
     let offer = o.offer.offer_id.clone();
-    let offer_id: [u8; 16] = hex::decode(&offer).ok().and_then(|b| b.try_into().ok()).ok_or("bad offer id")?;
-    let e_pub_m: [u8; 32] = hex::decode(&o.offer.e_pub_m).ok().and_then(|b| b.try_into().ok()).ok_or("bad offer key")?;
+    let offer_id: [u8; 16] = hex::decode(&offer)
+        .ok()
+        .and_then(|b| b.try_into().ok())
+        .ok_or("bad offer id")?;
+    let e_pub_m: [u8; 32] = hex::decode(&o.offer.e_pub_m)
+        .ok()
+        .and_then(|b| b.try_into().ok())
+        .ok_or("bad offer key")?;
     let e_p = x25519_dalek::StaticSecret::random_from_rng(rand::rngs::OsRng);
     let e_pub_p = x25519_dalek::PublicKey::from(&e_p).to_bytes();
     lobby_send(client, &offer, &offer_id, PHASE_HELLO, &e_pub_p).await?;
-    let commit: [u8; 32] = lobby_wait(client, &offer, &offer_id, PHASE_COMMIT).await?[1..].try_into().map_err(|_| "bad commit")?;
+    let commit: [u8; 32] = lobby_wait(client, &offer, &offer_id, PHASE_COMMIT).await?[1..]
+        .try_into()
+        .map_err(|_| "bad commit")?;
     let n_p: [u8; 16] = rand::random();
     lobby_send(client, &offer, &offer_id, PHASE_PHONE_NONCE, &n_p).await?;
-    let n_m: [u8; 16] = lobby_wait(client, &offer, &offer_id, PHASE_REVEAL).await?[1..].try_into().map_err(|_| "bad reveal")?;
+    let n_m: [u8; 16] = lobby_wait(client, &offer, &offer_id, PHASE_REVEAL).await?[1..]
+        .try_into()
+        .map_err(|_| "bad reveal")?;
     if commitment(&e_pub_m, &e_pub_p, &n_m) != commit {
         lobby_send(client, &offer, &offer_id, PHASE_PHONE_ABORT, &[]).await?;
         return Err("the Mac's reveal does not match its commitment: aborted".into());
@@ -654,12 +838,22 @@ async fn add(ctx: &Ctx, label: &str) -> Result<(), String> {
     if !shared.was_contributory() {
         return Err("low-order key".into());
     }
-    let t = Transcript { offer_id, e_pub_m, e_pub_p, commit, n_m, n_p };
+    let t = Transcript {
+        offer_id,
+        e_pub_m,
+        e_pub_p,
+        commit,
+        n_m,
+        n_p,
+    };
     let th = t.hash();
     let key = phase_key(shared.as_bytes(), &th);
     println!();
     println!("    ┌───────────┐");
-    println!("    │  {}  │   phone screen: check it matches the Mac", spaced(&t.code()));
+    println!(
+        "    │  {}  │   phone screen: check it matches the Mac",
+        spaced(&t.code())
+    );
     println!("    └───────────┘");
     let sealed = lobby_wait(client, &offer, &offer_id, PHASE_MAC_CONFIRMED).await?;
     let confirmed: MacConfirmed = open_phase(&key, &offer_id, PHASE_MAC_CONFIRMED, &sealed[1..])
@@ -668,7 +862,11 @@ async fn add(ctx: &Ctx, label: &str) -> Result<(), String> {
     if Sha256::digest(&confirmed.mac_e2e.0).as_slice() != confirmed.bogo_id.0.as_slice() {
         return Err("bogoId is not the hash of the Mac's E2E key".into());
     }
-    println!("  The Mac confirmed \"{}\" ({}).", confirmed.mac_name, short(&confirmed.bogo_id.0));
+    println!(
+        "  The Mac confirmed \"{}\" ({}).",
+        confirmed.mac_name,
+        short(&confirmed.bogo_id.0)
+    );
     if !ask(ctx, "  Confirm on the phone (simulated Face ID)?").await {
         lobby_send(client, &offer, &offer_id, PHASE_PHONE_ABORT, &[]).await?;
         return Err("cancelled on the phone".into());
@@ -688,12 +886,27 @@ async fn add(ctx: &Ctx, label: &str) -> Result<(), String> {
     };
     let challenge: [u8; 32] = confirmed.challenge.array().ok_or("bad challenge")?;
     let proof: p256::ecdsa::Signature = signing.sign(&pop_message(&th, &challenge));
-    let approval_key = signing.verifying_key().to_encoded_point(false).as_bytes().to_vec();
+    let approval_key = signing
+        .verifying_key()
+        .to_encoded_point(false)
+        .as_bytes()
+        .to_vec();
     let (e2e_secret, e2e_public) = bogo_e2e::keypair();
-    let relay_pub = ctx.phone.lock().await.store.relay_seed.array::<32>().map(|s| SigningKey::from_bytes(&s).verifying_key().to_bytes()).ok_or("seed")?;
+    let relay_pub = ctx
+        .phone
+        .lock()
+        .await
+        .store
+        .relay_seed
+        .array::<32>()
+        .map(|s| SigningKey::from_bytes(&s).verifying_key().to_bytes())
+        .ok_or("seed")?;
     let mac_relay: [u8; 32] = confirmed.mac_relay.array().ok_or("bad Mac relay key")?;
     let mac_mailbox = bogo_relay_proto::mailbox(&mac_relay);
-    client.allow(vec![mac_mailbox.clone()]).await.map_err(|e| e.to_string())?;
+    client
+        .allow(vec![mac_mailbox.clone()])
+        .await
+        .map_err(|e| e.to_string())?;
     let tx = tx_id(&th);
     {
         let mut p = ctx.phone.lock().await;
@@ -714,11 +927,16 @@ async fn add(ctx: &Ctx, label: &str) -> Result<(), String> {
     let attestation = ctx.attestation.as_ref().map(|object| {
         use base64::Engine;
         let b64 = base64::engine::general_purpose::STANDARD;
-        AttestationEvidence { key_id: b64.encode(rand::random::<[u8; 32]>()), object: b64.encode(object) }
+        AttestationEvidence {
+            key_id: b64.encode(rand::random::<[u8; 32]>()),
+            object: b64.encode(object),
+        }
     });
     match &attestation {
         Some(_) => println!("  App Attest: sending the given file as the attestation object"),
-        None => println!("  App Attest: none (simulator-only test path; only a test build of the Mac accepts it)"),
+        None => println!(
+            "  App Attest: none (simulator-only test path; only a test build of the Mac accepts it)"
+        ),
     }
     let submit = RegSubmit {
         approval_key: B(approval_key),
@@ -731,7 +949,14 @@ async fn add(ctx: &Ctx, label: &str) -> Result<(), String> {
         encoding_versions: vec![1],
     };
     let plaintext = serde_json::to_vec(&submit).map_err(|e| e.to_string())?;
-    lobby_send(client, &offer, &offer_id, PHASE_REG_SUBMIT, &seal_phase(&key, &offer_id, PHASE_REG_SUBMIT, &plaintext)).await?;
+    lobby_send(
+        client,
+        &offer,
+        &offer_id,
+        PHASE_REG_SUBMIT,
+        &seal_phase(&key, &offer_id, PHASE_REG_SUBMIT, &plaintext),
+    )
+    .await?;
     println!("  submitted; waiting for the Mac…");
     let answer = lobby_wait(client, &offer, &offer_id, PHASE_REGISTERED).await?;
     let mut p = ctx.phone.lock().await;
@@ -754,19 +979,33 @@ async fn add(ctx: &Ctx, label: &str) -> Result<(), String> {
         m.state = "active".into();
     }
     p.save();
-    println!("✔ registered with \"{}\": approver {}", confirmed.mac_name, short(&reg.approver_id.0));
+    println!(
+        "✔ registered with \"{}\": approver {}",
+        confirmed.mac_name,
+        short(&reg.approver_id.0)
+    );
     Ok(())
 }
 
 async fn command(ctx: &Ctx, line: &str) -> Result<bool, String> {
     let words: Vec<&str> = line.split_whitespace().collect();
     let pick = |p: &Phone, s: Option<&&str>| -> Result<Rec, String> {
-        let n: usize = s.ok_or("which request (#)")?.trim_start_matches('#').parse().map_err(|_| "a number")?;
-        p.store.records.get(n.wrapping_sub(1)).cloned().ok_or_else(|| "no such request".to_string())
+        let n: usize = s
+            .ok_or("which request (#)")?
+            .trim_start_matches('#')
+            .parse()
+            .map_err(|_| "a number")?;
+        p.store
+            .records
+            .get(n.wrapping_sub(1))
+            .cloned()
+            .ok_or_else(|| "no such request".to_string())
     };
     match words[0] {
         "quit" | "exit" => return Ok(false),
-        "help" => println!("offers | add [label] | status | requests | approve <#> | deny <#> [note] | pause <#> | sync | remove | outbox | replay <n> | copy <n> | hold | release [reverse] | quit"),
+        "help" => println!(
+            "offers | add [label] | status | requests | approve <#> | deny <#> [note] | pause <#> | sync | remove | outbox | replay <n> | copy <n> | hold | release [reverse] | quit"
+        ),
         "offers" => {
             for o in ctx.client.offers().await.map_err(|e| e.to_string())? {
                 println!("  \"{}\" opened {}s ago", o.offer.mac_label, o.age_seconds);
@@ -776,7 +1015,14 @@ async fn command(ctx: &Ctx, line: &str) -> Result<bool, String> {
         "status" => {
             let p = ctx.phone.lock().await;
             match p.mac() {
-                Some(m) => println!("  Mac \"{}\" {} — state {} — boot {} — approver {}", m.name, short(&m.bogo_id.0), m.state, m.boot_seq, short(&m.approver_id.0)),
+                Some(m) => println!(
+                    "  Mac \"{}\" {} — state {} — boot {} — approver {}",
+                    m.name,
+                    short(&m.bogo_id.0),
+                    m.state,
+                    m.boot_seq,
+                    short(&m.approver_id.0)
+                ),
                 None => println!("  no Mac"),
             }
             println!("  mailbox {}", &ctx.mailbox[..16]);
@@ -790,8 +1036,15 @@ async fn command(ctx: &Ctx, line: &str) -> Result<bool, String> {
                     short(&r.req_id.0),
                     r.phase,
                     r.decision.clone().unwrap_or_default(),
-                    r.detail.as_ref().map(|d| format!(" ({d})")).unwrap_or_default(),
-                    if r.bytes.0.is_empty() { " [placeholder: notice before request]" } else { "" }
+                    r.detail
+                        .as_ref()
+                        .map(|d| format!(" ({d})"))
+                        .unwrap_or_default(),
+                    if r.bytes.0.is_empty() {
+                        " [placeholder: notice before request]"
+                    } else {
+                        ""
+                    }
                 );
             }
         }
@@ -807,28 +1060,56 @@ async fn command(ctx: &Ctx, line: &str) -> Result<bool, String> {
             }
             let msg = match words[0] {
                 "approve" => {
-                    let key = p256::ecdsa::SigningKey::from_slice(&mac.approval_key.0).map_err(|e| e.to_string())?;
-                    let sig: p256::ecdsa::Signature = key.sign(&[b"BOGO-APPROVAL\x00v1".as_slice(), &r.bytes.0].concat());
-                    PhoneMsg::Approval { req_id: r.req_id.clone(), alg: 1, sig: B(sig.to_bytes().to_vec()) }
+                    let key = p256::ecdsa::SigningKey::from_slice(&mac.approval_key.0)
+                        .map_err(|e| e.to_string())?;
+                    let sig: p256::ecdsa::Signature =
+                        key.sign(&[b"BOGO-APPROVAL\x00v1".as_slice(), &r.bytes.0].concat());
+                    PhoneMsg::Approval {
+                        req_id: r.req_id.clone(),
+                        alg: 1,
+                        sig: B(sig.to_bytes().to_vec()),
+                    }
                 }
-                "deny" => PhoneMsg::Denial { req_id: r.req_id.clone(), note: Some(words[2..].join(" ")).filter(|n| !n.is_empty()) },
+                "deny" => PhoneMsg::Denial {
+                    req_id: r.req_id.clone(),
+                    note: Some(words[2..].join(" ")).filter(|n| !n.is_empty()),
+                },
                 _ => {
                     let agent = request_agent(&r.bytes.0).ok_or("unreadable request")?;
-                    PhoneMsg::Pause { agent_id: B(agent), epoch: r.pause_epoch }
+                    PhoneMsg::Pause {
+                        agent_id: B(agent),
+                        epoch: r.pause_epoch,
+                    }
                 }
             };
             if let Some(rec) = p.rec(&r.req_id.0) {
                 rec.phase = "sent".into();
                 rec.decision = Some(msg_kind(&msg).into());
             }
-            let n = p.enqueue(&msg, bogo_e2e::message_id(), None).ok_or("could not seal")?;
+            let n = p
+                .enqueue(&msg, bogo_e2e::message_id(), None)
+                .ok_or("could not seal")?;
             p.save();
             println!("  stored decision as outbox #{n} before sending");
         }
         "sync" => {
             let mut p = ctx.phone.lock().await;
-            let open: Vec<B> = p.store.records.iter().filter(|r| r.phase != "finished").map(|r| r.req_id.clone()).collect();
-            let n = p.enqueue(&PhoneMsg::Sync { req_ids: open.clone() }, bogo_e2e::message_id(), None).ok_or("no Mac")?;
+            let open: Vec<B> = p
+                .store
+                .records
+                .iter()
+                .filter(|r| r.phase != "finished")
+                .map(|r| r.req_id.clone())
+                .collect();
+            let n = p
+                .enqueue(
+                    &PhoneMsg::Sync {
+                        req_ids: open.clone(),
+                    },
+                    bogo_e2e::message_id(),
+                    None,
+                )
+                .ok_or("no Mac")?;
             p.save();
             println!("  sync for {} request(s) queued as #{n}", open.len());
         }
@@ -838,33 +1119,59 @@ async fn command(ctx: &Ctx, line: &str) -> Result<bool, String> {
                 m.state = "removed".into();
                 m.approval_key = B::default();
             }
-            let n = p.enqueue(&PhoneMsg::Removed {}, bogo_e2e::message_id(), None).ok_or("no Mac")?;
+            let n = p
+                .enqueue(&PhoneMsg::Removed {}, bogo_e2e::message_id(), None)
+                .ok_or("no Mac")?;
             p.save();
             println!("  approval key deleted; `removed` queued as #{n}");
         }
         "outbox" => {
             let p = ctx.phone.lock().await;
             for o in &p.store.outbox {
-                println!("  #{:<3} {} {:<9} sent={}", o.n, short(&o.msg_id.0), o.kind, o.sent);
+                println!(
+                    "  #{:<3} {} {:<9} sent={}",
+                    o.n,
+                    short(&o.msg_id.0),
+                    o.kind,
+                    o.sent
+                );
             }
         }
         "replay" => {
-            let n: usize = words.get(1).and_then(|n| n.parse().ok()).ok_or("replay <n>")?;
+            let n: usize = words
+                .get(1)
+                .and_then(|n| n.parse().ok())
+                .ok_or("replay <n>")?;
             let (o, to) = {
                 let p = ctx.phone.lock().await;
-                (p.store.outbox.get(n - 1).cloned().ok_or("no such item")?, p.mac().ok_or("no Mac")?.mac_mailbox.clone())
+                (
+                    p.store.outbox.get(n - 1).cloned().ok_or("no such item")?,
+                    p.mac().ok_or("no Mac")?.mac_mailbox.clone(),
+                )
             };
             let ok = send(ctx, &o, &to).await;
-            println!("  replayed #{n} {} with the same message ID and bytes: relay {}", o.kind, if ok { "accepted" } else { "refused" });
+            println!(
+                "  replayed #{n} {} with the same message ID and bytes: relay {}",
+                o.kind,
+                if ok { "accepted" } else { "refused" }
+            );
         }
         "copy" => {
-            let n: usize = words.get(1).and_then(|n| n.parse().ok()).ok_or("copy <n>")?;
+            let n: usize = words
+                .get(1)
+                .and_then(|n| n.parse().ok())
+                .ok_or("copy <n>")?;
             let mut p = ctx.phone.lock().await;
             let o = p.store.outbox.get(n - 1).cloned().ok_or("no such item")?;
             let msg: PhoneMsg = serde_json::from_str(&o.body).map_err(|e| e.to_string())?;
-            let m = p.enqueue(&msg, bogo_e2e::message_id(), Some(o.body.clone())).ok_or("seal")?;
+            let m = p
+                .enqueue(&msg, bogo_e2e::message_id(), Some(o.body.clone()))
+                .ok_or("seal")?;
             p.save();
-            println!("  #{m} is a fresh envelope (new message ID) carrying #{n}'s {} again", o.kind);
+            println!(
+                "  #{m} is a fresh envelope (new message ID) carrying #{n}'s {} again",
+                o.kind
+            );
         }
         "hold" => {
             ctx.phone.lock().await.held = true;
@@ -886,10 +1193,22 @@ async fn command(ctx: &Ctx, line: &str) -> Result<bool, String> {
                 p.save();
                 v
             };
-            let to = ctx.phone.lock().await.mac().ok_or("no Mac")?.mac_mailbox.clone();
+            let to = ctx
+                .phone
+                .lock()
+                .await
+                .mac()
+                .ok_or("no Mac")?
+                .mac_mailbox
+                .clone();
             for o in pending {
                 let ok = send(ctx, &o, &to).await;
-                println!("  → released #{} {} ({})", o.n, o.kind, if ok { "sent" } else { "FAILED" });
+                println!(
+                    "  → released #{} {} ({})",
+                    o.n,
+                    o.kind,
+                    if ok { "sent" } else { "FAILED" }
+                );
                 if !ok {
                     let mut p = ctx.phone.lock().await;
                     if let Some(x) = p.store.outbox.iter_mut().find(|x| x.n == o.n) {

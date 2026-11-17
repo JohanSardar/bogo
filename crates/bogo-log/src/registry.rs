@@ -58,7 +58,10 @@ impl Registry {
         self.seq = e.seq;
         match &e.event {
             LogEvent::ApproverRegistered { approver, replaces } => {
-                if let Some(old) = replaces.as_ref().and_then(|id| self.approvers.get_mut(&id.text())) {
+                if let Some(old) = replaces
+                    .as_ref()
+                    .and_then(|id| self.approvers.get_mut(&id.text()))
+                {
                     old.revoked = true;
                     old.revoked_by = Some(RevokedBy::Owner);
                 }

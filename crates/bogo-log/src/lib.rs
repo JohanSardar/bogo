@@ -6,8 +6,8 @@
 //! then releases the callers, so whatever a caller does after `append`
 //! returns happens after its record is durable.
 mod event;
-pub mod reader;
 pub mod outcome;
+pub mod reader;
 pub mod registry;
 pub mod verify;
 
@@ -87,8 +87,8 @@ pub fn read(path: &Path) -> Result<(Vec<Entry>, Option<Vec<u8>>), LogError> {
             why: why.into(),
         };
         let text = std::str::from_utf8(raw).map_err(|_| corrupt("not UTF-8"))?;
-        let parsed: Line =
-            serde_json::from_str(text.trim_end_matches('\n')).map_err(|e| corrupt(&e.to_string()))?;
+        let parsed: Line = serde_json::from_str(text.trim_end_matches('\n'))
+            .map_err(|e| corrupt(&e.to_string()))?;
         if parsed.v != VERSION {
             return Err(corrupt("unknown entry version"));
         }
@@ -302,10 +302,7 @@ impl Writer {
             buf.extend_from_slice(&line);
             seqs.push(seq);
         }
-        let result = self
-            .file
-            .write_all(&buf)
-            .and_then(|_| self.file.sync_all());
+        let result = self.file.write_all(&buf).and_then(|_| self.file.sync_all());
         if let Err(e) = result {
             self.failed = true;
             return Err(io(e));
