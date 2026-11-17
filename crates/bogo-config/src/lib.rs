@@ -785,7 +785,8 @@ impl Validator<'_> {
             inherit.hints.clone()
         };
         for (path, fmt) in t.highlight.unwrap_or_default() {
-            let p = parse_path(&path).ok_or_else(|| {
+            let p = parse_path(&path, matches!(fmt.as_str(), "title" | "subtitle" | "image"))
+                .ok_or_else(|| {
                 err(format!(
                     "{at} highlight key {path:?} is not a field path like \"amount\", \"payment.amount\" or \"items[0].price\""
                 ))
@@ -1056,7 +1057,7 @@ fn parse_format(f: &str) -> Option<Format> {
 }
 
 /// `amount`, `payment.amount`, `items[0].price`, `[2]`.
-fn parse_path(p: &str) -> Option<Vec<PathElem>> {
+fn parse_path(p: &str, dotted_indices: bool) -> Option<Vec<PathElem>> {
     let mut out = Vec::new();
     for seg in p.split('.') {
         let (key, mut rest) = match seg.find('[') {
@@ -1067,7 +1068,7 @@ fn parse_path(p: &str) -> Option<Vec<PathElem>> {
             return None;
         }
         if !key.is_empty() {
-            if key.bytes().all(|b| b.is_ascii_digit()) {
+            if dotted_indices && key.bytes().all(|b| b.is_ascii_digit()) {
                 out.push(PathElem::Index(key.parse().ok()?));
             } else {
                 out.push(PathElem::Key(key.to_owned()));

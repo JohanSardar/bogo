@@ -115,8 +115,9 @@ are refused. Quote names containing dots in TOML.
 | `select` | Optional name of one top-level argument whose string value picks a per-action entry (below). The selected argument is also highlighted first: in the format `highlight` gives it, else as text. | Empty, or characters other than ASCII letters, digits, `_`, `.`, `-`. |
 
 Highlight paths support object keys separated by dots and unsigned u32 array
-indices: `amount`, `payment.amount`, `items[0].price`, `[2]`. A numeric dot
-segment is also an array index, so `items.0.price` means `items[0].price`. Empty dot segments,
+indices: `amount`, `payment.amount`, `items[0].price`, `[2]`. For the new `title`, `subtitle` and `image` roles, a numeric dot segment is also
+an array index, so `items.0.price` means `items[0].price`. Text and money formats
+keep numeric dot segments as object keys; use bracket indices for their arrays. Empty dot segments,
 unmatched brackets, negative/nondigit/overflowing indices and stray `]` fail.
 Formats are `text`, `title`, `subtitle`, `image`, `usd_cents`, or three lowercase ASCII letters plus `_minor`
 (e.g. `eur_minor`). The parser does **not** check those three letters against an
