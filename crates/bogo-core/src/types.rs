@@ -47,6 +47,9 @@ pub enum PathElem {
 pub enum Format {
     Text,
     MoneyMinor(String),
+    Title,
+    Subtitle,
+    Image,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

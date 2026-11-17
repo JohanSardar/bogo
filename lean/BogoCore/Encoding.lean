@@ -15,7 +15,7 @@ value    := 0x00 null | 0x01 false | 0x02 true
           | 0x05 u32 count value*
           | 0x06 u32 count (u32 len utf8-key value)*   (keys strictly ascending by bytes)
 path     := list(0x00 str key | 0x01 u32 index)
-fmt      := 0x00 text | 0x01 str iso4217
+fmt      := 0x00 text | 0x01 str iso4217 | 0x02 title | 0x03 subtitle | 0x04 image
 opt(x)   := 0x00 | 0x01 x       str := u32 len utf8       bytes := u32 len raw
 list(x)  := u32 count x*
 ```
@@ -47,6 +47,9 @@ abbrev Path := List PathElem
 inductive Format where
   | text
   | moneyMinor (iso4217 : String)
+  | title
+  | subtitle
+  | image
   deriving Repr, DecidableEq, Inhabited
 
 /-- An approval request: exactly the fields of SPEC §3.6, nothing more. -/
@@ -132,6 +135,9 @@ def encPathElem : PathElem → List UInt8
 def encFormat : Format → List UInt8
   | .text => [0]
   | .moneyMinor c => 1 :: encStr c
+  | .title => [2]
+  | .subtitle => [3]
+  | .image => [4]
 
 def encHint (h : Path × Format) : List UInt8 := encList encPathElem h.1 ++ encFormat h.2
 
@@ -172,6 +178,7 @@ def PathElem.wf : PathElem → Bool
 def Format.wf : Format → Bool
   | .text => true
   | .moneyMinor c => strOk c
+  | .title | .subtitle | .image => true
 
 def hintWf (h : Path × Format) : Bool :=
   decide (h.1.length < u32Bound) && h.1.all PathElem.wf && h.2.wf
@@ -364,6 +371,9 @@ def decFormat : Dec Format
       match decStr r with
       | some (c, r) => some (.moneyMinor c, r)
       | none => none
+    else if b = 2 then some (.title, r)
+    else if b = 3 then some (.subtitle, r)
+    else if b = 4 then some (.image, r)
     else none
   | [] => none
 

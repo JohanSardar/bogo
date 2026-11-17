@@ -113,7 +113,13 @@ pub fn parse(b: &[u8]) -> Option<Fields> {
                 _ => return None,
             }
         }
-        r.opt(|r| r.str())?;
+        match r.u8()? {
+            0 | 2..=4 => {}
+            1 => {
+                r.str()?;
+            }
+            _ => return None,
+        }
     }
     r.tag(7)?;
     let agent = r.bytes()?;
@@ -151,7 +157,12 @@ fn u64_at(b: &[u8], r: &Range<usize>) -> u64 {
 
 /// A vector's bytes with this boot's nonce, the current time, the same expiry
 /// lifetime if it has one, and (unless kept) this Mac's bogoId.
-pub fn restamp(vector: &[u8], bogo_id: Option<&[u8; 32]>, nonce: &[u8; 40], now_ms: u64) -> Option<Vec<u8>> {
+pub fn restamp(
+    vector: &[u8],
+    bogo_id: Option<&[u8; 32]>,
+    nonce: &[u8; 40],
+    now_ms: u64,
+) -> Option<Vec<u8>> {
     let f = parse(vector)?;
     let mut b = vector.to_vec();
     if let Some(id) = bogo_id {
@@ -161,7 +172,9 @@ pub fn restamp(vector: &[u8], bogo_id: Option<&[u8; 32]>, nonce: &[u8; 40], now_
     let created = u64_at(vector, &f.created);
     b[f.created.clone()].copy_from_slice(&now_ms.to_be_bytes());
     if let Some(e) = &f.expires {
-        let lifetime = u64_at(vector, e).saturating_sub(created).clamp(60_000, 3_600_000);
+        let lifetime = u64_at(vector, e)
+            .saturating_sub(created)
+            .clamp(60_000, 3_600_000);
         b[e.clone()].copy_from_slice(&(now_ms + lifetime).to_be_bytes());
     }
     parse(&b).map(|_| b)

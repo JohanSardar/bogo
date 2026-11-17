@@ -249,6 +249,9 @@ theorem decFormat_enc {f : Format} (r : List UInt8) (h : f.wf = true) :
     decFormat (encFormat f ++ r) = some (f, r) := by
   cases f with
   | text => rfl
+  | title => rfl
+  | subtitle => rfl
+  | image => rfl
   | moneyMinor c =>
     simp only [Format.wf] at h
     rw [encFormat, List.cons_append, decFormat, ite_eq_right (by decide), ite_eq_left rfl,

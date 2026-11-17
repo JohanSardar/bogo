@@ -48,6 +48,9 @@ pub fn config(c: &c::Config) -> k::PolicyConfig {
                                         .collect(),
                                     match f {
                                         c::Format::Text => k::Format::Text,
+                                        c::Format::Title => k::Format::Title,
+                                        c::Format::Subtitle => k::Format::Subtitle,
+                                        c::Format::Image => k::Format::Image,
                                         c::Format::MoneyMinor(s) => {
                                             k::Format::MoneyMinor(s.clone())
                                         }

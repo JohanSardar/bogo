@@ -192,6 +192,9 @@ pub enum Format {
     Text,
     /// An integer amount in the currency's minor unit; `"usd_cents"` is `MoneyMinor("USD")`.
     MoneyMinor(String),
+    Title,
+    Subtitle,
+    Image,
 }
 
 /// Mirrors Lean's `Requirement`.
@@ -789,9 +792,16 @@ impl Validator<'_> {
             })?;
             let f = parse_format(&fmt).ok_or_else(|| {
                 err(format!(
-                    "{at} highlight {path:?} = {fmt:?}; use \"text\", \"usd_cents\" or \"<iso4217>_minor\" (e.g. \"eur_minor\")"
+                    "{at} highlight {path:?} = {fmt:?}; use \"text\", \"title\", \"subtitle\", \"image\", \"usd_cents\" or \"<iso4217>_minor\" (e.g. \"eur_minor\")"
                 ))
             })?;
+            if matches!(f, Format::Title | Format::Subtitle | Format::Image)
+                && hints.iter().any(|(_, existing)| existing == &f)
+            {
+                return Err(err(format!(
+                    "{at} highlight has more than one {fmt:?} role"
+                )));
+            }
             hints.push((p, f));
         }
         let approvers = match t.approvers {
@@ -1033,6 +1043,9 @@ fn parse_requirement(at: &str, v: &toml::Value) -> Result<Requirement, ConfigErr
 fn parse_format(f: &str) -> Option<Format> {
     match f {
         "text" => Some(Format::Text),
+        "title" => Some(Format::Title),
+        "subtitle" => Some(Format::Subtitle),
+        "image" => Some(Format::Image),
         "usd_cents" => Some(Format::MoneyMinor("USD".to_owned())),
         _ => {
             let code = f.strip_suffix("_minor")?;
@@ -1054,7 +1067,11 @@ fn parse_path(p: &str) -> Option<Vec<PathElem>> {
             return None;
         }
         if !key.is_empty() {
-            out.push(PathElem::Key(key.to_owned()));
+            if key.bytes().all(|b| b.is_ascii_digit()) {
+                out.push(PathElem::Index(key.parse().ok()?));
+            } else {
+                out.push(PathElem::Key(key.to_owned()));
+            }
         } else if rest.is_empty() {
             return None;
         }
