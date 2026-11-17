@@ -601,7 +601,7 @@ Envelope := "BOGOE2E" 0x00 | u8 version=1 | u8 direction | u8 type | 16 bytes ms
 
 ### 3.12 Relay (`bogo-relay`)
 
-- **Public by default, self-hostable.** Every install uses the public relay below unless `[relay] url` names another; a pairing code carries that relay to the phone. `bogo-relay` runs with no flags (plain HTTP behind an HTTPS proxy, tunnel or cloud service) or with `--cert/--key`; [self-hosting](self-hosting-relay.md) has the one-command setups. Sign-ins are bound to the host the client addressed (`--service` pins it).
+- **Public by default, self-hostable.** Every install uses the public relay below unless `[relay] url` names another; a pairing code carries that relay to the phone. `bogo-relay` runs with no flags (plain HTTP behind an HTTPS proxy, tunnel or cloud service) or with `--cert/--key`; [self-hosting](self-hosting-relay.md) has the one-command setups. Sign-ins are bound to the relay's own name (`--service`), which only a loopback relay behind a tunnel or proxy may take from the request's Host.
 - **Deployment of the public relay.** On the VPS, completely separate from Apple Bridge's relay:
   - its own systemd unit `bogo-relay.service` and its own port, chosen by the owner (§11),
   - its own SQLite file (WAL, `synchronous=FULL`) and its own firewall rule,

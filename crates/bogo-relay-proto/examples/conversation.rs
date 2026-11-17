@@ -23,6 +23,8 @@ fn start(binary: &str, dir: &Path, port: u16) -> Relay {
             "86400",
             "--mailbox-capacity",
             "2",
+            "--service",
+            &format!("localhost:{port}"),
             "--database",
             dir.join("relay.sqlite").to_str().unwrap(),
             "--cert",
@@ -41,7 +43,6 @@ fn start(binary: &str, dir: &Path, port: u16) -> Relay {
     println!("{}", ready.trim());
     Relay(child)
 }
-/// No `--service`: the relay binds sign-ins to the host the client addressed.
 async fn connect(base: &str, key: &SigningKey, http: &reqwest::Client) -> Client {
     let service = base.strip_prefix("https://").unwrap();
     Client::connect(base, service, key, http.clone())

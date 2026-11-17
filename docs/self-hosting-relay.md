@@ -42,9 +42,10 @@ Fly.io, Render, Railway and others). Build the image from this repository:
 docker build -t bogo-relay -f deploy/relay/Dockerfile https://github.com/JohanSardar/bogo.git#main
 ```
 
-and run it on the service with port 8080, one instance (pairing rooms live in
-the relay's memory), and, if the service has one, a persistent volume at
-`/data`. Without a volume the relay forgets undelivered messages when it
+and run it on the service with port 8080, the environment variable
+`BOGO_RELAY_SERVICE` set to the service's host with `:443` (for example
+`bogo-relay-abc123.a.run.app:443`), one instance (pairing rooms live in the
+relay's memory), and, if the service has one, a persistent volume at `/data`. Without a volume the relay forgets undelivered messages when it
 restarts; the Mac and phone send them again. Set `url` to the HTTPS address
 the service gives you.
 
@@ -62,12 +63,15 @@ cargo run --release -p bogo-relay & cloudflared tunnel --url http://127.0.0.1:80
 it. A quick tunnel's address changes every time it starts, so this suits
 trying things out. For a lasting address use a named Cloudflare tunnel or
 Tailscale Funnel, or run the relay with your own certificate:
-`bogo-relay --listen 0.0.0.0:8443 --cert cert.pem --key key.pem`.
+`bogo-relay --listen 0.0.0.0:8443 --service relay.example.com:8443 --cert cert.pem --key key.pem`.
 
 ## What the relay does with no flags
 
 `bogo-relay` alone serves plain HTTP on `127.0.0.1:8080`, keeps its SQLite
 database in `./bogo-relay.sqlite`, keeps undelivered messages for 30 days and
 at most 1000 per mailbox. Put HTTPS in front of it, or give `--cert` and
-`--key` to serve HTTPS itself. `bogo-relay --help` lists every flag. The
+`--key` to serve HTTPS itself. Sign-ins are bound to the name clients use:
+give it with `--service host:port` (or `BOGO_RELAY_SERVICE`). Only a relay on
+loopback behind a tunnel or proxy, which forwards nothing but its own
+hostname, may leave it out and take the name from each request. `bogo-relay --help` lists every flag. The
 public relay's own deployment is in [deploy/relay](../deploy/relay/README.md).

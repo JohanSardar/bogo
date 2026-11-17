@@ -45,9 +45,12 @@ returns a random 32-byte challenge, valid for 60 seconds. The signature input is
 ```
 
 The service is the `host:port` the client addressed, the port always written
-(443 when the URL has none). The relay takes it from the request's Host
-header, or `--service` pins it. A relay that forwards another relay's challenge
-cannot use the answer, because the client signed the host it meant to reach.
+(443 when the URL has none). The relay knows its own: `--service` (or
+`BOGO_RELAY_SERVICE`), required whenever the relay serves TLS itself or listens
+beyond loopback. Only a relay on loopback behind an HTTPS tunnel or proxy, which
+routes nothing but its own hostname, takes it from the request's Host. Either
+way a relay that forwards another relay's challenge cannot use the answer: the
+client signed the host it meant to reach, and that is not this relay's name.
 The challenge binds both that service and mailbox. `POST /v1/auth/verify {pub,sig}` consumes it even
 on a bad signature and returns a random 32-byte hex bearer token valid for one
 hour. All remaining endpoints require that bearer. Tokens and challenges are

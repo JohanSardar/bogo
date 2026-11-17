@@ -31,9 +31,11 @@ struct Args {
     cert: Option<PathBuf>,
     #[arg(long, requires = "cert")]
     key: Option<PathBuf>,
-    /// Pin the identity every sign-in is bound to (host:port, as clients see it).
-    /// By default it is the host the client connected to, from its Host header.
-    #[arg(long)]
+    /// The name clients reach this relay by (host:port); every sign-in is bound
+    /// to it. Required unless the relay listens on loopback behind an HTTPS
+    /// tunnel or proxy, which routes only its own hostname; then it is the
+    /// request's Host.
+    #[arg(long, env = "BOGO_RELAY_SERVICE")]
     service: Option<String>,
     /// Seconds an undelivered message is kept; never an approval expiry.
     #[arg(long, default_value_t = 30 * 24 * 3600)]
@@ -103,9 +105,10 @@ fn prune(m: &mut Memory) {
     m.rooms
         .retain(|_, r| now.duration_since(r.refreshed) < ROOM_LIFE);
 }
-/// The identity a sign-in is bound to: the pinned `--service`, or the host the
-/// client addressed. A relay that forwards someone else's challenge cannot use
-/// the answer, because the client signs the host it meant to reach.
+/// The identity a sign-in is bound to: `--service`, or on loopback the host the
+/// tunnel or proxy in front routed here. A relay that forwards someone else's
+/// challenge cannot use the answer, because the client signs the host it meant
+/// to reach and nothing in front of this relay routes that host here.
 fn service(app: &App, headers: &HeaderMap, uri: &Uri) -> Option<String> {
     if let Some(s) = &app.service {
         return Some(s.clone());
@@ -488,8 +491,13 @@ async fn room_close(
         .memory
         .lock()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if seat(&mut m, &req.room, &id)?.owner != id {
-        return Err(StatusCode::FORBIDDEN);
+    if !valid_hex(&req.room, 16) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    match m.rooms.get(&req.room) {
+        None => return Err(StatusCode::NOT_FOUND),
+        Some(r) if r.owner != id => return Err(StatusCode::FORBIDDEN),
+        Some(_) => {}
     }
     m.rooms.remove(&req.room);
     Ok(StatusCode::OK)
@@ -510,6 +518,12 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
         || args.mailbox_capacity == 0
     {
         return Err("invalid limits".into());
+    }
+    if args.service.is_none() && (args.cert.is_some() || !args.listen.ip().is_loopback()) {
+        eprintln!(
+            "bogo-relay: give --service host:port (or BOGO_RELAY_SERVICE), the name clients reach this relay by; only a relay on loopback behind a tunnel or proxy can go without it"
+        );
+        return Err("no service".into());
     }
     let db = Connection::open(&args.database)?;
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;

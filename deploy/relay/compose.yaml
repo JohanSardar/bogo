@@ -8,6 +8,8 @@ services:
       context: https://github.com/JohanSardar/bogo.git#main
       dockerfile: deploy/relay/Dockerfile
     restart: unless-stopped
+    environment:
+      BOGO_RELAY_SERVICE: ${DOMAIN:?set DOMAIN to the relay's hostname}:443
     volumes:
       - relay-data:/data
   https:
