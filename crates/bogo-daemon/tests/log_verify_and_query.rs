@@ -124,3 +124,58 @@ async fn running_log_query_survives_one_megabyte() {
         "running log query failed on four ordinary 300KB call records: {result:?}"
     );
 }
+
+#[tokio::test]
+async fn daemon_does_not_log_upstream_stderr() {
+    let scratch = Scratch::new();
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let marker = "private-upstream-fixture-value";
+    // Fill the stderr pipe before exiting, so the daemon must have read the marker
+    // before this upstream fails its handshake and startup completes.
+    std::fs::write(
+        scratch.0.join("bogo.toml"),
+        format!(
+            r#"version = 1
+[server]
+port = {port}
+max_body = "1MiB"
+[defaults]
+policy = "approve"
+max_pending = 2
+[upstreams.fixture]
+command = "/bin/sh"
+args = ["-c", "echo {marker} >&2; /usr/bin/head -c 2097152 /dev/zero >&2"]
+"#
+        ),
+    )
+    .unwrap();
+    let stderr = scratch.0.join("daemon.stderr");
+    let _daemon = Daemon(
+        Process::new(env!("CARGO_BIN_EXE_bogo-daemon"))
+            .arg("--home")
+            .arg(&scratch.0)
+            .env("BOGO_LOG", "bogo_upstream::child=debug")
+            .stdout(Stdio::null())
+            .stderr(std::fs::File::create(&stderr).unwrap())
+            .spawn()
+            .unwrap(),
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !request(&scratch.0, Command::Status)
+            .await
+            .is_ok_and(|v| v["running"] == true)
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("daemon did not become ready");
+    let diagnostics = std::fs::read_to_string(stderr).unwrap();
+    if let Some(line) = diagnostics.lines().find(|line| line.contains(marker)) {
+        panic!("daemon logged previously unlogged upstream data: {line}");
+    }
+}

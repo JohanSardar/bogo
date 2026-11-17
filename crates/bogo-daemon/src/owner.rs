@@ -143,12 +143,7 @@ fn plist(root: &Path) -> Result<String> {
         "<key>PATH</key><string>{}</string>",
         xml(&std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".into()))
     );
-    for name in [
-        "BOGO_RELAY_CA",
-        "BOGO_MAC_NAME",
-        "BOGO_APP_BUNDLE_VERSIONS",
-        "BOGO_LOG",
-    ] {
+    for name in ["BOGO_RELAY_CA", "BOGO_MAC_NAME", "BOGO_APP_BUNDLE_VERSIONS"] {
         if let Ok(value) = std::env::var(name) {
             environment.push_str(&format!(
                 "<key>{name}</key><string>{}</string>",
@@ -869,20 +864,10 @@ async fn connection(stream: UnixStream, handle: Handle, hub: Arc<a::Hub>) -> Res
     remote.result(result).await
 }
 
-/// The daemon's diagnostics: `tracing` events from every crate, to stderr (`run/stderr.log`
-/// under launchd). Off unless `BOGO_LOG` sets a filter such as `warn`; the audit log is separate.
-fn diagnostics() {
-    let filter = tracing_subscriber::EnvFilter::try_from_env("BOGO_LOG")
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("off"));
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_writer(std::io::stderr)
-        .with_ansi(false)
-        .try_init();
-}
-
+/// The daemon installs no `tracing` subscriber, on purpose: the libraries' diagnostic events
+/// (some carry upstream stderr or error text with URLs) are dropped, so nothing but the
+/// startup error reaches `run/stderr.log`. Turning them on needs each event reviewed first.
 pub async fn serve(root: &Path) -> Result<()> {
-    diagnostics();
     let home = bogo_state::Home::open(root).map_err(error)?;
     let lock = home.lock().map_err(error)?;
     let (config, secrets) = load(root)?;

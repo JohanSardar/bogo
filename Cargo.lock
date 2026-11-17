@@ -434,7 +434,6 @@ dependencies = [
  "tokio",
  "toml",
  "tower-http",
- "tracing-subscriber",
  "url",
 ]
 
