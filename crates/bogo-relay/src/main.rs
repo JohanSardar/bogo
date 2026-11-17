@@ -32,9 +32,9 @@ struct Args {
     #[arg(long, requires = "cert")]
     key: Option<PathBuf>,
     /// The name clients reach this relay by (host:port); every sign-in is bound
-    /// to it. Required unless the relay listens on loopback behind an HTTPS
-    /// tunnel or proxy, which routes only its own hostname; then it is the
-    /// request's Host.
+    /// to it. Required unless the relay listens on loopback behind a tunnel or
+    /// proxy that routes by the requested hostname (a Cloudflare quick tunnel);
+    /// then it is the request's Host.
     #[arg(long, env = "BOGO_RELAY_SERVICE")]
     service: Option<String>,
     /// Seconds an undelivered message is kept; never an approval expiry.

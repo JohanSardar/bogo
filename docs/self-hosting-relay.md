@@ -62,7 +62,9 @@ cargo run --release -p bogo-relay & cloudflared tunnel --url http://127.0.0.1:80
 `cloudflared` prints an `https://….trycloudflare.com` address; set `url` to
 it. A quick tunnel's address changes every time it starts, so this suits
 trying things out. For a lasting address use a named Cloudflare tunnel or
-Tailscale Funnel, or run the relay with your own certificate:
+Tailscale Funnel and give the relay that name, for example
+`cargo run --release -p bogo-relay -- --service my-mac.example.ts.net:443`,
+or run the relay with your own certificate:
 `bogo-relay --listen 0.0.0.0:8443 --service relay.example.com:8443 --cert cert.pem --key key.pem`.
 
 ## What the relay does with no flags
@@ -72,6 +74,8 @@ database in `./bogo-relay.sqlite`, keeps undelivered messages for 30 days and
 at most 1000 per mailbox. Put HTTPS in front of it, or give `--cert` and
 `--key` to serve HTTPS itself. Sign-ins are bound to the name clients use:
 give it with `--service host:port` (or `BOGO_RELAY_SERVICE`). Only a relay on
-loopback behind a tunnel or proxy, which forwards nothing but its own
-hostname, may leave it out and take the name from each request. `bogo-relay --help` lists every flag. The
+loopback behind something that routes by the requested hostname, such as a
+Cloudflare quick tunnel, may leave it out and take the name from each
+request; behind anything that forwards other hostnames (Tailscale Funnel, a
+catch-all proxy), give `--service`. `bogo-relay --help` lists every flag. The
 public relay's own deployment is in [deploy/relay](../deploy/relay/README.md).

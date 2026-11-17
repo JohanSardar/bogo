@@ -47,8 +47,10 @@ returns a random 32-byte challenge, valid for 60 seconds. The signature input is
 The service is the `host:port` the client addressed, the port always written
 (443 when the URL has none). The relay knows its own: `--service` (or
 `BOGO_RELAY_SERVICE`), required whenever the relay serves TLS itself or listens
-beyond loopback. Only a relay on loopback behind an HTTPS tunnel or proxy, which
-routes nothing but its own hostname, takes it from the request's Host. Either
+beyond loopback. Only a relay on loopback behind something that routes by the
+requested hostname (a Cloudflare quick tunnel, Caddy's site matcher) takes it
+from the request's Host; behind a front that forwards other hostnames, such as
+Tailscale Funnel, `--service` is needed too. Either
 way a relay that forwards another relay's challenge cannot use the answer: the
 client signed the host it meant to reach, and that is not this relay's name.
 The challenge binds both that service and mailbox. `POST /v1/auth/verify {pub,sig}` consumes it even
