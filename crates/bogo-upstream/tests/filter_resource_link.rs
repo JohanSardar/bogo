@@ -3,7 +3,7 @@ use rmcp::model::CallToolResult;
 use serde_json::json;
 
 #[test]
-fn s1_filtering_resource_uri_preserves_a_deliverable_mcp_result() {
+fn filtering_resource_uri_preserves_a_deliverable_mcp_result() {
     // The documented daemon integration serializes, filters, then converts back.
     let upstream: CallToolResult = serde_json::from_value(json!({
         "content": [{

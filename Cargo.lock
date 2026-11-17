@@ -331,7 +331,6 @@ dependencies = [
  "bogo-relay-proto",
  "bogo-verify",
  "chacha20poly1305",
- "ed25519-dalek",
  "hex",
  "hkdf",
  "rand 0.8.8",
@@ -339,7 +338,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "thiserror",
  "tokio",
  "tracing",
  "x25519-dalek",
@@ -352,7 +350,6 @@ dependencies = [
  "async-trait",
  "bogo-approver",
  "ed25519-dalek",
- "hex",
  "rand 0.8.8",
  "serde_json",
 ]
@@ -437,6 +434,7 @@ dependencies = [
  "tokio",
  "toml",
  "tower-http",
+ "tracing-subscriber",
  "url",
 ]
 
@@ -473,7 +471,6 @@ dependencies = [
  "sha2 0.10.9",
  "tokio",
  "tokio-util",
- "tower",
 ]
 
 [[package]]
@@ -540,6 +537,8 @@ dependencies = [
  "reqwest 0.13.5",
  "sse-stream",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -557,7 +556,6 @@ dependencies = [
  "bogo-state",
  "bogo-verify",
  "clap",
- "ed25519-dalek",
  "hex",
  "p256",
  "rand 0.8.8",
@@ -566,7 +564,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
- "tracing",
  "tracing-subscriber",
  "x25519-dalek",
 ]

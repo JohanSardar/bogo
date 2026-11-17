@@ -1,0 +1,51 @@
+# `cargo deny check` runs in CI and in `make check`. It fails on a new RustSec advisory, a
+# licence outside the list below, or a crate from anywhere but crates.io.
+# Every ignored advisory says why it does not reach a shipped secret, and who removes it.
+
+[graph]
+all-features = true
+
+[advisories]
+ignore = [
+    # crypto-bigint 0.5 timing variability, via p256 0.13. Shipped binaries use p256 only to
+    # verify signatures with public keys (bogo-verify, bogo-attest); only the test stand-in
+    # signs. The fix needs p256 0.14, a separate upgrade of the verification path.
+    { id = "RUSTSEC-2026-0387", reason = "p256 only verifies public signatures in shipped code" },
+    # chrono is unmaintained; it reaches us only through rmcp and schemars, and rmcp is pinned
+    # exactly (Cargo.toml). Drop this when an rmcp upgrade no longer needs chrono.
+    { id = "RUSTSEC-2026-0543", reason = "only via the exactly pinned rmcp" },
+    # The next two are in the relay crates, which T21 is replacing. T21 removes them.
+    # Bundled SQLite opening a database a less trusted party wrote; the relay opens only its own.
+    { id = "RUSTSEC-2026-0459", reason = "relay only, its own database; T21 owns the upgrade" },
+    # rustls-pemfile is unmaintained, via axum-server in bogo-relay; no fixed release exists.
+    { id = "RUSTSEC-2025-0134", reason = "relay only, no fixed release; T21 owns the relay" },
+]
+
+[licenses]
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-1-Clause",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+# The workspace crates are `publish = false`; the repo's LICENSE (MIT) covers them.
+private = { ignore = true }
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

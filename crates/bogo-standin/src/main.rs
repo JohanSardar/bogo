@@ -29,7 +29,9 @@ use tokio::{
 const APPROVAL_DOMAIN: &[u8] = b"BOGO-APPROVAL\x00v1";
 
 #[derive(Parser)]
-#[command(about = "BOGO stand-in Mac: registration, requests from the Lean vectors, verified decisions")]
+#[command(
+    about = "BOGO stand-in Mac: registration, requests from the Lean vectors, verified decisions"
+)]
 struct Args {
     /// BOGO's state directory.
     #[arg(long)]
@@ -75,7 +77,10 @@ struct Args {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis() as u64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 fn short(b: &[u8]) -> String {
@@ -117,7 +122,11 @@ struct Mac {
 
 impl Mac {
     async fn append(&mut self, events: Vec<LogEvent>) -> Result<Vec<u64>, SinkError> {
-        let seqs = self.log.append_all(events).await.map_err(|e| SinkError(e.to_string()))?;
+        let seqs = self
+            .log
+            .append_all(events)
+            .await
+            .map_err(|e| SinkError(e.to_string()))?;
         let entries = self.log.entries().map_err(|e| SinkError(e.to_string()))?;
         for e in &entries {
             self.registry.apply(e);
@@ -146,7 +155,13 @@ impl Mac {
         self.epochs.get(agent).copied().unwrap_or(1)
     }
 
-    async fn approval(&mut self, approver: ApproverId, req: ReqId, alg: u16, proof: Vec<u8>) -> Result<Vec<Effect>, SinkError> {
+    async fn approval(
+        &mut self,
+        approver: ApproverId,
+        req: ReqId,
+        alg: u16,
+        proof: Vec<u8>,
+    ) -> Result<Vec<Effect>, SinkError> {
         let who = self.name(&approver);
         let ignored = |why: &str| LogEvent::Approval {
             req: Hex::of(&req),
@@ -158,12 +173,18 @@ impl Mac {
         };
         if self.active(&approver).is_none() {
             self.append(vec![ignored("revoked")]).await?;
-            println!("✗ approval from {who} for {} REJECTED: that approver is revoked", short(&req));
+            println!(
+                "✗ approval from {who} for {} REJECTED: that approver is revoked",
+                short(&req)
+            );
             return Ok(vec![]);
         }
         let Some(r) = self.reqs.iter().find(|r| r.id == req) else {
             self.append(vec![ignored("unknown")]).await?;
-            println!("✗ approval from {who} for {} ignored: no such request in this boot", short(&req));
+            println!(
+                "✗ approval from {who} for {} ignored: no such request in this boot",
+                short(&req)
+            );
             return Ok(vec![]);
         };
         let (bytes, to, k, vector) = (r.bytes.clone(), r.to.clone(), r.k, r.vector.clone());
@@ -180,13 +201,17 @@ impl Mac {
             println!("✗ approval from {who} for #{vector} ignored ({why})");
             return Ok(vec![]);
         }
-        let pk = self.active(&approver).map(|a| (a.entry.alg, a.entry.sig_pk.0.clone()));
+        let pk = self
+            .active(&approver)
+            .map(|a| (a.entry.alg, a.entry.sig_pk.0.clone()));
         let valid = pk.is_some_and(|(a, pk)| {
             a == alg && bogo_verify::verify(alg, &pk, &[APPROVAL_DOMAIN, &bytes].concat(), &proof)
         });
         if !valid {
             self.append(vec![ignored("bad_signature")]).await?;
-            println!("✗ approval from {who} for #{vector} REJECTED: signature does not verify over the request bytes");
+            println!(
+                "✗ approval from {who} for #{vector} REJECTED: signature does not verify over the request bytes"
+            );
             return Ok(vec![]);
         }
         let r = self.req_mut(&req).expect("found above");
@@ -202,7 +227,10 @@ impl Mac {
         }];
         if settles {
             let approvers = r.counted.iter().map(|a| Hex::of(a)).collect();
-            events.push(LogEvent::RequestSettled { req: Hex::of(&req), approvers });
+            events.push(LogEvent::RequestSettled {
+                req: Hex::of(&req),
+                approvers,
+            });
             events.push(LogEvent::Authorized { req: Hex::of(&req) });
         }
         let seqs = self.append(events).await?;
@@ -219,9 +247,18 @@ impl Mac {
         Ok(vec![Effect::Settled { req, to }])
     }
 
-    async fn denial(&mut self, approver: ApproverId, req: ReqId, note: Option<String>) -> Result<Vec<Effect>, SinkError> {
+    async fn denial(
+        &mut self,
+        approver: ApproverId,
+        req: ReqId,
+        note: Option<String>,
+    ) -> Result<Vec<Effect>, SinkError> {
         let who = self.name(&approver);
-        let found = self.reqs.iter().find(|r| r.id == req).map(|r| (r.state.clone(), r.to.clone(), r.vector.clone()));
+        let found = self
+            .reqs
+            .iter()
+            .find(|r| r.id == req)
+            .map(|r| (r.state.clone(), r.to.clone(), r.vector.clone()));
         let why = match &found {
             _ if self.active(&approver).is_none() => Some("revoked"),
             None => Some("unknown"),
@@ -240,27 +277,51 @@ impl Mac {
         };
         if let Some(why) = why {
             self.append(vec![entry]).await?;
-            let why = if why == "unknown" { "no such request in this boot" } else { why };
+            let why = if why == "unknown" {
+                "no such request in this boot"
+            } else {
+                why
+            };
             println!("✗ denial from {who} for {} ignored: {why}", short(&req));
             return Ok(vec![]);
         }
         let (_, to, vector) = found.expect("checked");
         let seqs = self
-            .append(vec![entry, LogEvent::RequestEnded { req: Hex::of(&req), why: "denied".into() }])
+            .append(vec![
+                entry,
+                LogEvent::RequestEnded {
+                    req: Hex::of(&req),
+                    why: "denied".into(),
+                },
+            ])
             .await?;
         self.req_mut(&req).expect("found").state = State::Ended("denied".into());
         println!(
             "✔ DENIED #{vector} by {who}{}; log seq {}",
-            note.map(|n| format!(" with note {n:?}")).unwrap_or_default(),
+            note.map(|n| format!(" with note {n:?}"))
+                .unwrap_or_default(),
             seqs[0]
         );
-        Ok(vec![Effect::Outcome { req, outcome: "denied".into(), to }])
+        Ok(vec![Effect::Outcome {
+            req,
+            outcome: "denied".into(),
+            to,
+        }])
     }
 
-    async fn pause(&mut self, approver: ApproverId, agent: Vec<u8>, epoch: u64) -> Result<Vec<Effect>, SinkError> {
+    async fn pause(
+        &mut self,
+        approver: ApproverId,
+        agent: Vec<u8>,
+        epoch: u64,
+    ) -> Result<Vec<Effect>, SinkError> {
         let who = self.name(&approver);
         if self.active(&approver).is_none() || epoch != self.epoch(&agent) {
-            let why = if self.active(&approver).is_none() { "revoked" } else { "stale_epoch" };
+            let why = if self.active(&approver).is_none() {
+                "revoked"
+            } else {
+                "stale_epoch"
+            };
             self.append(vec![LogEvent::Ignored {
                 what: "pause".into(),
                 approver: Some(Hex::of(&approver)),
@@ -277,16 +338,30 @@ impl Mac {
             .filter(|r| r.agent == agent && matches!(r.state, State::Pending | State::Settled))
             .map(|r| (r.id, r.to.clone()))
             .collect();
-        let mut events = vec![LogEvent::AgentPaused { id: Hex(agent.clone()), by: hex::encode(approver) }];
-        events.extend(live.iter().map(|(id, _)| LogEvent::RequestEnded { req: Hex::of(id), why: "agentPaused".into() }));
+        let mut events = vec![LogEvent::AgentPaused {
+            id: Hex(agent.clone()),
+            by: hex::encode(approver),
+        }];
+        events.extend(live.iter().map(|(id, _)| LogEvent::RequestEnded {
+            req: Hex::of(id),
+            why: "agentPaused".into(),
+        }));
         self.append(events).await?;
         for (id, _) in &live {
             self.req_mut(id).expect("live").state = State::Ended("agentPaused".into());
         }
-        println!("✔ agent {} paused by {who}; {} live request(s) ended", short(&agent), live.len());
+        println!(
+            "✔ agent {} paused by {who}; {} live request(s) ended",
+            short(&agent),
+            live.len()
+        );
         Ok(live
             .into_iter()
-            .map(|(req, to)| Effect::Ended { req, why: EndWhy::AgentPaused, to })
+            .map(|(req, to)| Effect::Ended {
+                req,
+                why: EndWhy::AgentPaused,
+                to,
+            })
             .collect())
     }
 
@@ -304,7 +379,11 @@ impl Mac {
         if self.active(&id).is_none() {
             return Ok(vec![]);
         }
-        self.append(vec![LogEvent::ApproverRevoked { id: Hex::of(&id), by }]).await?;
+        self.append(vec![LogEvent::ApproverRevoked {
+            id: Hex::of(&id),
+            by,
+        }])
+        .await?;
         // A revoked approver's earlier approvals no longer count toward a pending threshold.
         for r in self.reqs.iter_mut().filter(|r| r.state == State::Pending) {
             r.counted.remove(&id);
@@ -313,7 +392,10 @@ impl Mac {
         if !dead.is_empty() {
             self.append(
                 dead.iter()
-                    .map(|(r, _)| LogEvent::RequestEnded { req: Hex::of(r), why: "approverRevoked".into() })
+                    .map(|(r, _)| LogEvent::RequestEnded {
+                        req: Hex::of(r),
+                        why: "approverRevoked".into(),
+                    })
                     .collect(),
             )
             .await?;
@@ -323,7 +405,11 @@ impl Mac {
         }
         Ok(dead
             .into_iter()
-            .map(|(req, to)| Effect::Ended { req, why: EndWhy::ApproverRevoked, to })
+            .map(|(req, to)| Effect::Ended {
+                req,
+                why: EndWhy::ApproverRevoked,
+                to,
+            })
             .collect())
     }
 }
@@ -348,9 +434,22 @@ impl Sink for Standin {
     async fn decision(&self, d: Decision) -> Result<Vec<Effect>, SinkError> {
         let mut mac = self.0.lock().await;
         match d {
-            Decision::Approval { approver, req, alg, proof } => mac.approval(approver, req, alg, proof).await,
-            Decision::Denial { approver, req, note } => mac.denial(approver, req, note).await,
-            Decision::Pause { approver, agent, epoch } => mac.pause(approver, agent, epoch).await,
+            Decision::Approval {
+                approver,
+                req,
+                alg,
+                proof,
+            } => mac.approval(approver, req, alg, proof).await,
+            Decision::Denial {
+                approver,
+                req,
+                note,
+            } => mac.denial(approver, req, note).await,
+            Decision::Pause {
+                approver,
+                agent,
+                epoch,
+            } => mac.pause(approver, agent, epoch).await,
         }
     }
 
@@ -360,19 +459,33 @@ impl Sink for Standin {
         let effects = mac.revoke(approver, RevokedBy::Approver).await?;
         let name = mac.name(&approver);
         if was_active {
-            println!("✔ {name} removed this Mac on the phone: approver revoked (by self), recorded in the log");
+            println!(
+                "✔ {name} removed this Mac on the phone: approver revoked (by self), recorded in the log"
+            );
         } else {
             println!("  {name} sent `removed` again; it is already revoked, acknowledging again");
         }
         Ok(effects)
     }
 
-    async fn route_update(&self, approver: ApproverId, seq: u64, route: serde_json::Value) -> Result<bool, SinkError> {
+    async fn route_update(
+        &self,
+        approver: ApproverId,
+        seq: u64,
+        route: serde_json::Value,
+    ) -> Result<bool, SinkError> {
         let mut mac = self.0.lock().await;
-        let newer = mac.registry.approver(&approver).is_some_and(|a| seq > a.route_seq);
+        let newer = mac
+            .registry
+            .approver(&approver)
+            .is_some_and(|a| seq > a.route_seq);
         if newer {
-            mac.append(vec![LogEvent::RouteUpdated { id: Hex::of(&approver), route_seq: seq, route }])
-                .await?;
+            mac.append(vec![LogEvent::RouteUpdated {
+                id: Hex::of(&approver),
+                route_seq: seq,
+                route,
+            }])
+            .await?;
             println!("  push token updated for {}", mac.name(&approver));
         }
         Ok(newer)
@@ -386,7 +499,12 @@ impl Sink for Standin {
         o.wire().into()
     }
 
-    async fn commit(&self, name: &str, kind: &str, new: &NewApprover) -> Result<Committed, SinkError> {
+    async fn commit(
+        &self,
+        name: &str,
+        kind: &str,
+        new: &NewApprover,
+    ) -> Result<Committed, SinkError> {
         let mut mac = self.0.lock().await;
         let replaced: Option<ApproverId> = mac
             .registry
@@ -407,9 +525,15 @@ impl Sink for Standin {
                 replaces: replaced.map(|r| Hex::of(&r)),
             }])
             .await?;
-        let state = mac.registry.approver(&new.id).ok_or_else(|| SinkError("not in registry".into()))?;
+        let state = mac
+            .registry
+            .approver(&new.id)
+            .ok_or_else(|| SinkError("not in registry".into()))?;
         println!("✔ approver_registered is durable (log seq {})", seqs[0]);
-        Ok(Committed { record: record(state).ok_or_else(|| SinkError("bad record".into()))?, replaced })
+        Ok(Committed {
+            record: record(state).ok_or_else(|| SinkError("bad record".into()))?,
+            replaced,
+        })
     }
 }
 
@@ -425,9 +549,20 @@ impl OwnerPrompt for Terminal {
     async fn confirm_code(&self, code: &str) -> bool {
         println!();
         println!("    ┌───────────┐");
-        println!("    │  {}  │   Does the phone show the same 6 digits? [y/N]", bogo_approver_iphone::wire::spaced(code));
+        println!(
+            "    │  {}  │   Does the phone show the same 6 digits? [y/N]",
+            bogo_approver_iphone::wire::spaced(code)
+        );
         println!("    └───────────┘");
-        let answer = self.lines.lock().await.next_line().await.ok().flatten().unwrap_or_default();
+        let answer = self
+            .lines
+            .lock()
+            .await
+            .next_line()
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         println!("  owner answered: {answer:?}");
         matches!(answer.trim(), "y" | "Y" | "yes")
     }
@@ -469,8 +604,17 @@ impl App {
                     return Err("register <name>".into());
                 }
                 println!("Registering approver \"{name}\" (numeric comparison through the relay)…");
-                match self.hub.register("iphone", &name, self.terminal.as_ref()).await {
-                    Ok(a) => println!("✔ registered \"{}\" approver {} (tx {})", a.name, short(&a.id), short(&a.tx_id)),
+                match self
+                    .hub
+                    .register("iphone", &name, self.terminal.as_ref())
+                    .await
+                {
+                    Ok(a) => println!(
+                        "✔ registered \"{}\" approver {} (tx {})",
+                        a.name,
+                        short(&a.id),
+                        short(&a.tx_id)
+                    ),
                     Err(e) => println!("✗ {e}"),
                 }
             }
@@ -483,9 +627,15 @@ impl App {
                         a.entry.name,
                         if a.active() { "active " } else { "REVOKED" },
                         a.entry.alg,
-                        a.entry.attest.get("environment").and_then(|v| v.as_str()).unwrap_or("?"),
+                        a.entry
+                            .attest
+                            .get("environment")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("?"),
                         a.registered_seq,
-                        a.revoked_by.map(|b| format!(" by {b:?}")).unwrap_or_default()
+                        a.revoked_by
+                            .map(|b| format!(" by {b:?}"))
+                            .unwrap_or_default()
                     );
                 }
             }
@@ -493,10 +643,18 @@ impl App {
                 let name = rest(1);
                 let id = {
                     let mac = self.mac.lock().await;
-                    mac.registry.approver_named(&name).and_then(|a| <ApproverId>::try_from(a.entry.id.0.as_slice()).ok())
+                    mac.registry
+                        .approver_named(&name)
+                        .and_then(|a| <ApproverId>::try_from(a.entry.id.0.as_slice()).ok())
                 };
                 let id = id.ok_or("no active approver with that name")?;
-                let effects = self.mac.lock().await.revoke(id, RevokedBy::Owner).await.map_err(|e| e.0)?;
+                let effects = self
+                    .mac
+                    .lock()
+                    .await
+                    .revoke(id, RevokedBy::Owner)
+                    .await
+                    .map_err(|e| e.0)?;
                 self.hub.revoked(&id).await;
                 self.hub.apply(effects);
                 println!("✔ revoked \"{name}\" (by owner)");
@@ -506,7 +664,11 @@ impl App {
                 names.sort();
                 for n in names {
                     let f = request::parse(&self.vectors[n]);
-                    println!("  {n:<22} {}", f.map(|f| format!("{}__{}", f.upstream, f.tool)).unwrap_or_default());
+                    println!(
+                        "  {n:<22} {}",
+                        f.map(|f| format!("{}__{}", f.upstream, f.tool))
+                            .unwrap_or_default()
+                    );
                 }
             }
             Some("send") => {
@@ -517,7 +679,10 @@ impl App {
                     .map(|k| k.parse().map_err(|_| "k must be a number"))
                     .transpose()?
                     .unwrap_or(1);
-                let vector = self.vectors.get(*name).ok_or("no such vector (try `vectors`)")?;
+                let vector = self
+                    .vectors
+                    .get(*name)
+                    .ok_or("no such vector (try `vectors`)")?;
                 let mut mac = self.mac.lock().await;
                 let to: Vec<ApproverId> = mac
                     .registry
@@ -532,7 +697,8 @@ impl App {
                 req[..32].copy_from_slice(&mac.boot_id);
                 req[32..].copy_from_slice(&mac.seq.to_be_bytes());
                 let own = (!self.keep_vector_bogo_id).then_some(&self.bogo_id);
-                let bytes = request::restamp(vector, own, &req, now_ms()).ok_or("vector does not parse")?;
+                let bytes =
+                    request::restamp(vector, own, &req, now_ms()).ok_or("vector does not parse")?;
                 let f = request::parse(&bytes).ok_or("restamped request does not parse")?;
                 let epoch = mac.epoch(&f.agent_id);
                 let seqs = mac
@@ -564,13 +730,22 @@ impl App {
                     f.upstream,
                     f.tool,
                     f.agent_name,
-                    f.justification.map(|j| format!(", reason {j:?}")).unwrap_or_default(),
+                    f.justification
+                        .map(|j| format!(", reason {j:?}"))
+                        .unwrap_or_default(),
                     short(&req),
                     seqs[0],
                     names.join(", ")
                 );
                 self.hub.ask(
-                    Outbound { req, bytes, boot_seq, pause_epoch: epoch, arm_delay_ms: self.arm_delay_ms, group_key: vec![] },
+                    Outbound {
+                        req,
+                        bytes,
+                        boot_seq,
+                        pause_epoch: epoch,
+                        arm_delay_ms: self.arm_delay_ms,
+                        group_key: vec![],
+                    },
                     &to,
                 );
             }
@@ -589,20 +764,32 @@ impl App {
                 }
             }
             Some("settled") => {
-                let (req, to, v) = self.find(words.get(1).ok_or("settled <#>")?).await.ok_or("no such request")?;
+                let (req, to, v) = self
+                    .find(words.get(1).ok_or("settled <#>")?)
+                    .await
+                    .ok_or("no such request")?;
                 self.hub.settled(req, &to);
                 println!("→ sent `settled` for #{v}");
             }
             Some("ended") => {
-                let (req, to, v) = self.find(words.get(1).ok_or("ended <#> [why]")?).await.ok_or("no such request")?;
-                let why = EndWhy::parse(words.get(2).copied().unwrap_or("callEnded")).ok_or("unknown reason")?;
+                let (req, to, v) = self
+                    .find(words.get(1).ok_or("ended <#> [why]")?)
+                    .await
+                    .ok_or("no such request")?;
+                let why = EndWhy::parse(words.get(2).copied().unwrap_or("callEnded"))
+                    .ok_or("unknown reason")?;
                 {
                     let mut mac = self.mac.lock().await;
-                    let live = mac.req_mut(&req).is_some_and(|r| matches!(r.state, State::Pending | State::Settled));
+                    let live = mac
+                        .req_mut(&req)
+                        .is_some_and(|r| matches!(r.state, State::Pending | State::Settled));
                     if live {
-                        mac.append(vec![LogEvent::RequestEnded { req: Hex::of(&req), why: why.wire().into() }])
-                            .await
-                            .map_err(|e| e.0)?;
+                        mac.append(vec![LogEvent::RequestEnded {
+                            req: Hex::of(&req),
+                            why: why.wire().into(),
+                        }])
+                        .await
+                        .map_err(|e| e.0)?;
                         mac.req_mut(&req).expect("live").state = State::Ended(why.wire().into());
                     }
                 }
@@ -610,22 +797,39 @@ impl App {
                 println!("→ sent `ended {}` for #{v}", why.wire());
             }
             Some("outcome") => {
-                let (req, to, v) = self.find(words.get(1).ok_or("outcome <#> <word>")?).await.ok_or("no such request")?;
+                let (req, to, v) = self
+                    .find(words.get(1).ok_or("outcome <#> <word>")?)
+                    .await
+                    .ok_or("no such request")?;
                 let word = words.get(2).copied().unwrap_or("executed");
                 // `quiet`: record the evidence but send nothing, as if the Mac
                 // stopped before telling the phone; `sync` must recover it.
                 let quiet = words.get(3) == Some(&"quiet");
                 let evidence = match word {
                     "executed" => vec![
-                        LogEvent::Forwarded { req: Hex::of(&req), registry_seq: 0 },
-                        LogEvent::Result { req: Hex::of(&req), ok: true },
+                        LogEvent::Forwarded {
+                            req: Hex::of(&req),
+                            registry_seq: 0,
+                        },
+                        LogEvent::Result {
+                            req: Hex::of(&req),
+                            ok: true,
+                        },
                     ],
                     "notSent" => vec![LogEvent::NotSent { req: Hex::of(&req) }],
-                    "unknown" => vec![LogEvent::Forwarded { req: Hex::of(&req), registry_seq: 0 }],
+                    "unknown" => vec![LogEvent::Forwarded {
+                        req: Hex::of(&req),
+                        registry_seq: 0,
+                    }],
                     _ => vec![],
                 };
                 if !evidence.is_empty() {
-                    self.mac.lock().await.append(evidence).await.map_err(|e| e.0)?;
+                    self.mac
+                        .lock()
+                        .await
+                        .append(evidence)
+                        .await
+                        .map_err(|e| e.0)?;
                 }
                 if quiet {
                     println!("  recorded outcome {word} for #{v} in the log; no notice sent");
@@ -639,29 +843,54 @@ impl App {
                     let mut mac = self.mac.lock().await;
                     let boot_seq = mac.home.next_boot(&mac._lock).map_err(|e| e.to_string())?;
                     let boot_id: [u8; 32] = rand::random();
-                    mac.append(vec![LogEvent::Boot { boot_seq, boot_id: Hex::of(&boot_id) }])
-                        .await
-                        .map_err(|e| e.0)?;
+                    mac.append(vec![LogEvent::Boot {
+                        boot_seq,
+                        boot_id: Hex::of(&boot_id),
+                    }])
+                    .await
+                    .map_err(|e| e.0)?;
                     (mac.boot_seq, mac.boot_id, mac.seq) = (boot_seq, boot_id, 0);
-                    for r in mac.reqs.iter_mut().filter(|r| matches!(r.state, State::Pending | State::Settled)) {
+                    for r in mac
+                        .reqs
+                        .iter_mut()
+                        .filter(|r| matches!(r.state, State::Pending | State::Settled))
+                    {
                         r.state = State::Ended("otherBoot".into());
                     }
                     BootNotice { boot_seq, boot_id }
                 };
                 self.hub.boot_notice(notice);
-                println!("→ new boot {} ({}); every earlier request has ended; sent `boot`", notice.boot_seq, short(&notice.boot_id));
+                println!(
+                    "→ new boot {} ({}); every earlier request has ended; sent `boot`",
+                    notice.boot_seq,
+                    short(&notice.boot_id)
+                );
             }
             Some("log") => {
                 let n: usize = words.get(1).and_then(|n| n.parse().ok()).unwrap_or(10);
-                let entries = self.mac.lock().await.log.entries().map_err(|e| e.to_string())?;
+                let entries = self
+                    .mac
+                    .lock()
+                    .await
+                    .log
+                    .entries()
+                    .map_err(|e| e.to_string())?;
                 for e in entries.iter().rev().take(n).rev() {
                     println!("  {}", summarize(&e.raw));
                 }
             }
             Some("verify") => {
-                let entries = self.mac.lock().await.log.entries().map_err(|e| e.to_string())?;
-                let report = bogo_log::verify::verify(&entries, &|alg, pk, m, p| bogo_verify::verify(alg, pk, m, p))
+                let entries = self
+                    .mac
+                    .lock()
+                    .await
+                    .log
+                    .entries()
                     .map_err(|e| e.to_string())?;
+                let report = bogo_log::verify::verify(&entries, &|alg, pk, m, p| {
+                    bogo_verify::verify(alg, pk, m, p)
+                })
+                .map_err(|e| e.to_string())?;
                 println!("✔ chain intact; {report:?}");
             }
             Some(other) => return Err(format!("unknown command {other:?} (try `help`)")),
@@ -675,10 +904,14 @@ fn summarize(raw: &str) -> String {
     let mut v: serde_json::Value = serde_json::from_str(raw).unwrap_or_default();
     fn shorten(v: &mut serde_json::Value) {
         match v {
-            serde_json::Value::String(s) if s.len() == 80 && s.bytes().all(|b| b.is_ascii_hexdigit()) => {
+            serde_json::Value::String(s)
+                if s.len() == 80 && s.bytes().all(|b| b.is_ascii_hexdigit()) =>
+            {
                 *s = bogo_standin::rid(&hex::decode(&*s).unwrap_or_default());
             }
-            serde_json::Value::String(s) if s.len() > 24 && s.bytes().all(|b| b.is_ascii_hexdigit()) => {
+            serde_json::Value::String(s)
+                if s.len() > 24 && s.bytes().all(|b| b.is_ascii_hexdigit()) =>
+            {
                 *s = format!("{}…({}B)", &s[..12], s.len() / 2);
             }
             serde_json::Value::Array(a) => a.iter_mut().for_each(shorten),
@@ -691,20 +924,30 @@ fn summarize(raw: &str) -> String {
 }
 
 fn load_vectors(dir: &std::path::Path) -> Result<HashMap<String, Vec<u8>>, String> {
-    let text = std::fs::read_to_string(dir.join("requests.json")).map_err(|e| format!("vectors: {e}"))?;
-    let root: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("vectors: {e}"))?;
+    let text =
+        std::fs::read_to_string(dir.join("requests.json")).map_err(|e| format!("vectors: {e}"))?;
+    let root: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("vectors: {e}"))?;
     Ok(root["requests"]
         .as_array()
         .ok_or("vectors: no requests")?
         .iter()
-        .filter_map(|r| Some((r["name"].as_str()?.to_string(), hex::decode(r["encoded_hex"].as_str()?).ok()?)))
+        .filter_map(|r| {
+            Some((
+                r["name"].as_str()?.to_string(),
+                hex::decode(r["encoded_hex"].as_str()?).ok()?,
+            ))
+        })
         .collect())
 }
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_env("BOGO_LOG")
+                .unwrap_or_else(|_| "warn".into()),
+        )
         .with_writer(std::io::stderr)
         .init();
     if let Err(e) = run(Args::parse()).await {
@@ -778,15 +1021,26 @@ async fn run(args: Args) -> Result<(), String> {
     };
     let route = IphoneRoute::new(
         cfg,
-        MacKeys { e2e: keys.e2e.clone(), e2e_public: keys.e2e_public, relay: keys.relay.clone(), bogo_id: keys.bogo_id },
+        MacKeys {
+            e2e: keys.e2e.clone(),
+            e2e_public: keys.e2e_public,
+            relay: keys.relay.clone(),
+            bogo_id: keys.bogo_id,
+        },
     )?;
     println!("  relay mailbox {}", route.mailbox());
     let approvers: Vec<ApproverRecord> = registry.approvers.values().filter_map(record).collect();
     let seq = log
-        .append(LogEvent::Boot { boot_seq, boot_id: Hex::of(&boot_id) })
+        .append(LogEvent::Boot {
+            boot_seq,
+            boot_id: Hex::of(&boot_id),
+        })
         .await
         .map_err(|e| e.to_string())?;
-    println!("  boot {boot_seq} ({}) recorded at log seq {seq}", short(&boot_id));
+    println!(
+        "  boot {boot_seq} ({}) recorded at log seq {seq}",
+        short(&boot_id)
+    );
     let mac = Arc::new(Mutex::new(Mac {
         home,
         _lock: lock,
@@ -798,10 +1052,17 @@ async fn run(args: Args) -> Result<(), String> {
         reqs: vec![],
         epochs: HashMap::new(),
     }));
-    let hub = Hub::new(vec![route.clone() as Arc<dyn ApproverRoute>], Arc::new(Standin(mac.clone())));
+    let hub = Hub::new(
+        vec![route.clone() as Arc<dyn ApproverRoute>],
+        Arc::new(Standin(mac.clone())),
+    );
     hub.start(approvers, BootNotice { boot_seq, boot_id }).await;
-    println!("  allowlist applied; `boot` and `registered` sent to every active approver. Type `help`.");
-    let terminal = Arc::new(Terminal { lines: Mutex::new(BufReader::new(tokio::io::stdin()).lines()) });
+    println!(
+        "  allowlist applied; `boot` and `registered` sent to every active approver. Type `help`."
+    );
+    let terminal = Arc::new(Terminal {
+        lines: Mutex::new(BufReader::new(tokio::io::stdin()).lines()),
+    });
     let app = App {
         mac,
         hub,
@@ -812,7 +1073,13 @@ async fn run(args: Args) -> Result<(), String> {
         arm_delay_ms: args.arm_delay_ms,
     };
     loop {
-        let line = terminal.lines.lock().await.next_line().await.map_err(|e| e.to_string())?;
+        let line = terminal
+            .lines
+            .lock()
+            .await
+            .next_line()
+            .await
+            .map_err(|e| e.to_string())?;
         let Some(line) = line else { break };
         if !line.trim().is_empty() {
             println!("» {}", line.trim());

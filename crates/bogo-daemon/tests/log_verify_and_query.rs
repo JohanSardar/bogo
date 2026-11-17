@@ -31,7 +31,7 @@ impl Drop for Daemon {
 }
 
 #[tokio::test]
-async fn review_r1_verify_rejects_forward_without_threshold() {
+async fn verify_rejects_forward_without_threshold() {
     let scratch = Scratch::new();
     let home = bogo_state::Home::open(&scratch.0).unwrap();
     let lock = home.lock().unwrap();
@@ -64,7 +64,7 @@ async fn review_r1_verify_rejects_forward_without_threshold() {
 }
 
 #[tokio::test]
-async fn review_r2_running_log_query_survives_one_megabyte() {
+async fn running_log_query_survives_one_megabyte() {
     let scratch = Scratch::new();
     // Use an unused loopback port and explicit owner values, without launchd.
     let port = std::net::TcpListener::bind("127.0.0.1:0")

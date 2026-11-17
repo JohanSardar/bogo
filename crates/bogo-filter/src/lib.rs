@@ -155,9 +155,3 @@ fn dotted(v: &mut Value, parts: &[&str], action: Action, report: &mut Report) {
         _ => {}
     }
 }
-
-/// A conservative schema view: stripping may invalidate constraints anywhere in a schema.
-/// Omit it rather than advertising a contract a filtered result cannot meet.
-pub fn output_schema(rules: &Rules, schema: Option<Value>) -> Option<Value> {
-    if rules.paths.is_empty() { schema } else { None }
-}

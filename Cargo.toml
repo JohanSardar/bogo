@@ -17,6 +17,10 @@ toml = "1"
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 # The gate depends on rmcp internals, so it is pinned exactly (ARCHITECTURE §9).
 rmcp = { version = "=3.10.0", default-features = false }
+# Diagnostics: libraries emit `tracing` events; each binary installs one subscriber, filtered by
+# `BOGO_LOG`, writing to stderr. The audit log (bogo-log) is separate and never goes here.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
