@@ -656,13 +656,13 @@ fn sessions(r: &mut Report, m: &Mcp, token: &str, env: &Env) {
 }
 
 #[cfg(test)]
-mod review_tests {
+mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
-    fn review_s1_runner_replays_audit_proof() {
+    fn runner_replays_audit_proof() {
         let scratch = std::env::temp_dir().join(format!("bogo-review-{}", hex(16)));
         std::fs::create_dir_all(scratch.join("log")).unwrap();
         let proof = "ab".repeat(64);
@@ -707,7 +707,7 @@ mod review_tests {
     }
 
     #[test]
-    fn review_s2_missing_read_tool_cannot_prove_no_write() {
+    fn missing_read_tool_cannot_prove_no_write() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {

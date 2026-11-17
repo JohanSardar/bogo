@@ -115,15 +115,43 @@ pub struct BootNotice {
 /// A message from an approver, after the route authenticated its channel.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Inbound {
-    Approval { approver: ApproverId, req: ReqId, alg: u16, proof: Vec<u8> },
-    Denial { approver: ApproverId, req: ReqId, note: Option<String> },
-    Pause { approver: ApproverId, agent: Vec<u8>, epoch: u64 },
-    Seen { approver: ApproverId, req: ReqId },
-    Removed { approver: ApproverId },
-    Sync { approver: ApproverId, reqs: Vec<ReqId> },
-    RegResend { approver: ApproverId, tx_id: [u8; 32] },
+    Approval {
+        approver: ApproverId,
+        req: ReqId,
+        alg: u16,
+        proof: Vec<u8>,
+    },
+    Denial {
+        approver: ApproverId,
+        req: ReqId,
+        note: Option<String>,
+    },
+    Pause {
+        approver: ApproverId,
+        agent: Vec<u8>,
+        epoch: u64,
+    },
+    Seen {
+        approver: ApproverId,
+        req: ReqId,
+    },
+    Removed {
+        approver: ApproverId,
+    },
+    Sync {
+        approver: ApproverId,
+        reqs: Vec<ReqId>,
+    },
+    RegResend {
+        approver: ApproverId,
+        tx_id: [u8; 32],
+    },
     /// Route data changed (for the iPhone: `pushToken` with a higher `tokenSeq`).
-    RouteUpdate { approver: ApproverId, seq: u64, route: serde_json::Value },
+    RouteUpdate {
+        approver: ApproverId,
+        seq: u64,
+        route: serde_json::Value,
+    },
 }
 
 impl Inbound {
@@ -203,7 +231,12 @@ pub trait ApproverRoute: Send + Sync + 'static {
     async fn deliver(&self, a: &ApproverRecord, r: &Outbound) -> Result<(), DeliveryError>;
     /// Withdraw an undelivered request.
     async fn retract(&self, a: &ApproverRecord, req: &ReqId) -> Result<(), DeliveryError>;
-    async fn notice(&self, a: &ApproverRecord, req: &ReqId, n: &Notice) -> Result<(), DeliveryError>;
+    async fn notice(
+        &self,
+        a: &ApproverRecord,
+        req: &ReqId,
+        n: &Notice,
+    ) -> Result<(), DeliveryError>;
     async fn boot(&self, a: &ApproverRecord, b: &BootNotice) -> Result<(), DeliveryError>;
     /// Send `registered {txId, approverId}` again (idempotent on the approver).
     async fn registered(&self, a: &ApproverRecord) -> Result<(), DeliveryError>;
@@ -216,17 +249,41 @@ pub trait ApproverRoute: Send + Sync + 'static {
 /// An approval, denial or pause, as the decision logic receives it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Decision {
-    Approval { approver: ApproverId, req: ReqId, alg: u16, proof: Vec<u8> },
-    Denial { approver: ApproverId, req: ReqId, note: Option<String> },
-    Pause { approver: ApproverId, agent: Vec<u8>, epoch: u64 },
+    Approval {
+        approver: ApproverId,
+        req: ReqId,
+        alg: u16,
+        proof: Vec<u8>,
+    },
+    Denial {
+        approver: ApproverId,
+        req: ReqId,
+        note: Option<String>,
+    },
+    Pause {
+        approver: ApproverId,
+        agent: Vec<u8>,
+        epoch: u64,
+    },
 }
 
 /// What the hub sends after a decision took effect.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Effect {
-    Settled { req: ReqId, to: Vec<ApproverId> },
-    Ended { req: ReqId, why: EndWhy, to: Vec<ApproverId> },
-    Outcome { req: ReqId, outcome: String, to: Vec<ApproverId> },
+    Settled {
+        req: ReqId,
+        to: Vec<ApproverId>,
+    },
+    Ended {
+        req: ReqId,
+        why: EndWhy,
+        to: Vec<ApproverId>,
+    },
+    Outcome {
+        req: ReqId,
+        outcome: String,
+        to: Vec<ApproverId>,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -255,5 +312,10 @@ pub trait Sink: Send + Sync {
     ) -> Result<bool, SinkError>;
     /// The outcome word for `sync`, from the log.
     async fn outcome(&self, req: &ReqId) -> String;
-    async fn commit(&self, name: &str, kind: &str, new: &NewApprover) -> Result<Committed, SinkError>;
+    async fn commit(
+        &self,
+        name: &str,
+        kind: &str,
+        new: &NewApprover,
+    ) -> Result<Committed, SinkError>;
 }

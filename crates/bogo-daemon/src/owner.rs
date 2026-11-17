@@ -864,6 +864,9 @@ async fn connection(stream: UnixStream, handle: Handle, hub: Arc<a::Hub>) -> Res
     remote.result(result).await
 }
 
+/// The daemon installs no `tracing` subscriber, on purpose: the libraries' diagnostic events
+/// (some carry upstream stderr or error text with URLs) are dropped, so nothing but the
+/// startup error reaches `run/stderr.log`. Turning them on needs each event reviewed first.
 pub async fn serve(root: &Path) -> Result<()> {
     let home = bogo_state::Home::open(root).map_err(error)?;
     let lock = home.lock().map_err(error)?;

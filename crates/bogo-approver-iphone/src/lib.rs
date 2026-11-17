@@ -153,7 +153,11 @@ impl IphoneRoute {
                     &ch.phone_e2e,
                     &self.keys.bogo_id,
                     &ch.approver_id,
-                    Header { direction: Direction::MacToPhone, kind: msg.kind(), id },
+                    Header {
+                        direction: Direction::MacToPhone,
+                        kind: msg.kind(),
+                        id,
+                    },
                     &plaintext,
                 )
                 .map_err(err)?;
@@ -175,7 +179,9 @@ impl IphoneRoute {
         let (Some(apns), Some(push)) = (&self.apns, &ch.route.push) else {
             return;
         };
-        if hold(&self.pushed).contains(&(*approver, *req)) || hold(&self.dead_tokens).contains(&push.token.0) {
+        if hold(&self.pushed).contains(&(*approver, *req))
+            || hold(&self.dead_tokens).contains(&push.token.0)
+        {
             return;
         }
         let env = if push.env == "development" {
@@ -186,7 +192,12 @@ impl IphoneRoute {
         let result = apns
             .lock()
             .await
-            .wake(env, &hex::encode(&push.token.0), &hex::encode(&self.keys.bogo_id[..8]), &hex::encode(req))
+            .wake(
+                env,
+                &hex::encode(&push.token.0),
+                &hex::encode(&self.keys.bogo_id[..8]),
+                &hex::encode(req),
+            )
             .await;
         match result {
             Ok(r) if r.status == 200 => {
@@ -194,7 +205,11 @@ impl IphoneRoute {
             }
             Ok(r) => {
                 let dead = r.status == 410
-                    || (r.status == 400 && matches!(r.reason.as_deref(), Some("BadDeviceToken" | "DeviceTokenNotForTopic")));
+                    || (r.status == 400
+                        && matches!(
+                            r.reason.as_deref(),
+                            Some("BadDeviceToken" | "DeviceTokenNotForTopic")
+                        ));
                 if dead {
                     hold(&self.dead_tokens).insert(push.token.0.clone());
                 }
@@ -202,7 +217,11 @@ impl IphoneRoute {
                     "APNs refused the wake-up: {} {:?}{}",
                     r.status,
                     r.reason,
-                    if dead { "; not waking this token again until the phone sends a new one" } else { "" }
+                    if dead {
+                        "; not waking this token again until the phone sends a new one"
+                    } else {
+                        ""
+                    }
                 );
             }
             Err(e) => tracing::warn!("APNs: {e}"),
@@ -213,26 +232,58 @@ impl IphoneRoute {
     fn inbound(&self, approver: [u8; 32], ch: &Channel, msg: PhoneMsg) -> Option<Inbound> {
         let req = |b: &B| b.array::<40>();
         Some(match msg {
-            PhoneMsg::Approval { req_id, alg, sig } => Inbound::Approval { approver, req: req(&req_id)?, alg, proof: sig.0 },
-            PhoneMsg::Denial { req_id, note } => Inbound::Denial { approver, req: req(&req_id)?, note },
-            PhoneMsg::Pause { agent_id, epoch } => Inbound::Pause { approver, agent: agent_id.0, epoch },
-            PhoneMsg::Seen { req_id } => Inbound::Seen { approver, req: req(&req_id)? },
+            PhoneMsg::Approval { req_id, alg, sig } => Inbound::Approval {
+                approver,
+                req: req(&req_id)?,
+                alg,
+                proof: sig.0,
+            },
+            PhoneMsg::Denial { req_id, note } => Inbound::Denial {
+                approver,
+                req: req(&req_id)?,
+                note,
+            },
+            PhoneMsg::Pause { agent_id, epoch } => Inbound::Pause {
+                approver,
+                agent: agent_id.0,
+                epoch,
+            },
+            PhoneMsg::Seen { req_id } => Inbound::Seen {
+                approver,
+                req: req(&req_id)?,
+            },
             PhoneMsg::Sync { req_ids } => Inbound::Sync {
                 approver,
                 reqs: req_ids.iter().filter_map(req).collect(),
             },
-            PhoneMsg::RegResend { tx_id } => Inbound::RegResend { approver, tx_id: tx_id.array()? },
+            PhoneMsg::RegResend { tx_id } => Inbound::RegResend {
+                approver,
+                tx_id: tx_id.array()?,
+            },
             PhoneMsg::Removed {} => Inbound::Removed { approver },
-            PhoneMsg::PushToken { token_seq, token, env, encoding_versions } => {
+            PhoneMsg::PushToken {
+                token_seq,
+                token,
+                env,
+                encoding_versions,
+            } => {
                 if env != "development" && env != "production" || token.0.len() != 32 {
                     return None;
                 }
                 let mut route = ch.route.clone();
-                route.push = Some(wire::Push { token, env, seq: token_seq });
+                route.push = Some(wire::Push {
+                    token,
+                    env,
+                    seq: token_seq,
+                });
                 if !encoding_versions.is_empty() {
                     route.encoding_versions = encoding_versions;
                 }
-                Inbound::RouteUpdate { approver, seq: token_seq, route: serde_json::to_value(route).ok()? }
+                Inbound::RouteUpdate {
+                    approver,
+                    seq: token_seq,
+                    route: serde_json::to_value(route).ok()?,
+                }
             }
         })
     }
@@ -255,7 +306,11 @@ impl ApproverRoute for IphoneRoute {
         "iphone"
     }
 
-    async fn register(&self, name: &str, owner: &dyn OwnerPrompt) -> Result<Box<dyn PendingRegistration>, RegError> {
+    async fn register(
+        &self,
+        name: &str,
+        owner: &dyn OwnerPrompt,
+    ) -> Result<Box<dyn PendingRegistration>, RegError> {
         registration::run(self, name, owner).await
     }
 
@@ -266,7 +321,14 @@ impl ApproverRoute for IphoneRoute {
             let route: RouteData = serde_json::from_value(a.route.clone()).map_err(err)?;
             let phone_e2e = bogo_e2e::public_from(&route.phone_e2e.0).map_err(err)?;
             by_mailbox.insert(route.mailbox.clone(), a.id);
-            channels.insert(a.id, Arc::new(Channel { approver_id: a.id, phone_e2e, route }));
+            channels.insert(
+                a.id,
+                Arc::new(Channel {
+                    approver_id: a.id,
+                    phone_e2e,
+                    route,
+                }),
+            );
         }
         // Revoked approvers stay allowed to write, so a `removed` still gets
         // `revokedAck` and their decisions are recorded as rejected.
@@ -312,13 +374,30 @@ impl ApproverRoute for IphoneRoute {
             .map_err(err)
     }
 
-    async fn notice(&self, a: &ApproverRecord, req: &ReqId, n: &Notice) -> Result<(), DeliveryError> {
+    async fn notice(
+        &self,
+        a: &ApproverRecord,
+        req: &ReqId,
+        n: &Notice,
+    ) -> Result<(), DeliveryError> {
         let ch = self.channel(&a.id)?;
         let req_id = B(req.to_vec());
         let (msg, tag) = match n {
             Notice::Settled => (MacMsg::Settled { req_id }, "settled".to_string()),
-            Notice::Ended(why) => (MacMsg::Ended { req_id, why: why.wire().into() }, format!("ended/{}", why.wire())),
-            Notice::Outcome(o) => (MacMsg::Outcome { req_id, outcome: o.clone() }, format!("outcome/{o}")),
+            Notice::Ended(why) => (
+                MacMsg::Ended {
+                    req_id,
+                    why: why.wire().into(),
+                },
+                format!("ended/{}", why.wire()),
+            ),
+            Notice::Outcome(o) => (
+                MacMsg::Outcome {
+                    req_id,
+                    outcome: o.clone(),
+                },
+                format!("outcome/{o}"),
+            ),
         };
         let id = self.notice_id(&[tag.as_bytes(), req].concat(), &a.id);
         self.send(&ch, id, &msg).await
@@ -327,15 +406,29 @@ impl ApproverRoute for IphoneRoute {
     async fn boot(&self, a: &ApproverRecord, b: &BootNotice) -> Result<(), DeliveryError> {
         let ch = self.channel(&a.id)?;
         let id = self.notice_id(&[b"boot".as_slice(), &b.boot_id].concat(), &a.id);
-        self.send(&ch, id, &MacMsg::Boot { boot_seq: b.boot_seq, boot_id: B(b.boot_id.to_vec()) })
-            .await
+        self.send(
+            &ch,
+            id,
+            &MacMsg::Boot {
+                boot_seq: b.boot_seq,
+                boot_id: B(b.boot_id.to_vec()),
+            },
+        )
+        .await
     }
 
     async fn registered(&self, a: &ApproverRecord) -> Result<(), DeliveryError> {
         let ch = self.channel(&a.id)?;
         let id = self.notice_id(&[b"registered".as_slice(), &a.tx_id].concat(), &a.id);
-        self.send(&ch, id, &MacMsg::Registered { tx_id: B(a.tx_id.to_vec()), approver_id: B(a.id.to_vec()) })
-            .await
+        self.send(
+            &ch,
+            id,
+            &MacMsg::Registered {
+                tx_id: B(a.tx_id.to_vec()),
+                approver_id: B(a.id.to_vec()),
+            },
+        )
+        .await
     }
 
     async fn revoked_ack(&self, a: &ApproverRecord) -> Result<(), DeliveryError> {
@@ -347,7 +440,11 @@ impl ApproverRoute for IphoneRoute {
     async fn run_inbound(&self, handler: Arc<dyn InboundHandler>) {
         let mut backoff = Duration::from_millis(500);
         loop {
-            let batch = match self.relay.call(|c| async move { c.fetch(true).await }).await {
+            let batch = match self
+                .relay
+                .call(|c| async move { c.fetch(true).await })
+                .await
+            {
                 Ok(b) => {
                     backoff = Duration::from_millis(500);
                     b
@@ -363,7 +460,10 @@ impl ApproverRoute for IphoneRoute {
                 // Already applied and acknowledged once: the relay is showing
                 // it again (a resend after our ack). Acknowledge again only.
                 if hold(&self.acked).contains(&m.msg_id) {
-                    tracing::info!("message {} was already applied; acknowledged again, not applied", &m.msg_id[..12]);
+                    tracing::info!(
+                        "message {} was already applied; acknowledged again, not applied",
+                        &m.msg_id[..12]
+                    );
                     self.ack(&m.msg_id).await;
                     continue;
                 }

@@ -12,7 +12,7 @@ tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 serde_json.workspace = true
 thiserror = "2"
 hex = "0.4"
-tracing = "0.1"
+tracing.workspace = true
 
 [lints]
 workspace = true

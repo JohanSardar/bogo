@@ -15,5 +15,7 @@ build = "build.rs"
 [build-dependencies]
 cc = "1"
 
+# Not `[lints] workspace = true`: the workspace forbids `unsafe`, and this is the FFI crate.
+# Clippy is set exactly as the workspace sets it.
 [lints.clippy]
 all = { level = "warn", priority = -1 }

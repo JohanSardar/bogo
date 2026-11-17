@@ -74,8 +74,12 @@ impl Lobby<'_> {
                 if self.peer.as_ref().is_some_and(|p| p != &m.from) {
                     continue;
                 }
-                let Ok(body) = hex::decode(&m.body) else { continue };
-                let Some((&phase, payload)) = body.split_first() else { continue };
+                let Ok(body) = hex::decode(&m.body) else {
+                    continue;
+                };
+                let Some((&phase, payload)) = body.split_first() else {
+                    continue;
+                };
                 if m.msg_id != hex::encode(phase_msg_id(&self.offer_id, phase)) {
                     continue;
                 }
@@ -219,7 +223,14 @@ async fn exchange<'a>(
     if !shared.was_contributory() {
         return Err(RegError::Aborted("the phone sent a low-order key".into()));
     }
-    let t = Transcript { offer_id: lobby.offer_id, e_pub_m, e_pub_p, commit, n_m, n_p };
+    let t = Transcript {
+        offer_id: lobby.offer_id,
+        e_pub_m,
+        e_pub_p,
+        commit,
+        n_m,
+        n_p,
+    };
     let th = t.hash();
     let key = phase_key(shared.as_bytes(), &th);
     let code = t.code();
@@ -236,9 +247,14 @@ async fn exchange<'a>(
     };
     let plaintext = serde_json::to_vec(&confirmed).map_err(transport)?;
     lobby
-        .send(PHASE_MAC_CONFIRMED, &seal_phase(&key, &lobby.offer_id, PHASE_MAC_CONFIRMED, &plaintext))
+        .send(
+            PHASE_MAC_CONFIRMED,
+            &seal_phase(&key, &lobby.offer_id, PHASE_MAC_CONFIRMED, &plaintext),
+        )
         .await?;
-    owner.status("Confirmed on the Mac. Now confirm on the phone with Face ID.").await;
+    owner
+        .status("Confirmed on the Mac. Now confirm on the phone with Face ID.")
+        .await;
     let sealed = lobby.next(PHASE_REG_SUBMIT).await?;
     let submit: RegSubmit = open_phase(&key, &lobby.offer_id, PHASE_REG_SUBMIT, &sealed)
         .and_then(|p| serde_json::from_slice(&p).ok())
@@ -248,15 +264,21 @@ async fn exchange<'a>(
     let new = match checked {
         Ok(new) => new,
         Err(why) => {
-            let refused = serde_json::to_vec(&RefusedPhase { why: why.clone() }).unwrap_or_default();
+            let refused =
+                serde_json::to_vec(&RefusedPhase { why: why.clone() }).unwrap_or_default();
             let _ = lobby
-                .send(PHASE_REFUSED, &seal_phase(&key, &lobby.offer_id, PHASE_REFUSED, &refused))
+                .send(
+                    PHASE_REFUSED,
+                    &seal_phase(&key, &lobby.offer_id, PHASE_REFUSED, &refused),
+                )
                 .await;
             return Err(RegError::Refused(why));
         }
     };
     owner
-        .status(&format!("Phone checks passed for \"{name}\"; recording the registration."))
+        .status(&format!(
+            "Phone checks passed for \"{name}\"; recording the registration."
+        ))
         .await;
     let relay = crate::relay::Relay::new(
         &route.cfg.relay_url,
@@ -265,7 +287,8 @@ async fn exchange<'a>(
         route.keys.relay.clone(),
     )
     .map_err(RegError::Transport)?;
-    let phone_e2e = bogo_e2e::public_from(&submit.phone_e2e.0).map_err(|_| RegError::Aborted("bad key".into()))?;
+    let phone_e2e = bogo_e2e::public_from(&submit.phone_e2e.0)
+        .map_err(|_| RegError::Aborted("bad key".into()))?;
     Ok(Box::new(MacRegistration {
         relay,
         offer_hex: lobby.offer_hex.clone(),
@@ -287,22 +310,44 @@ fn check(
     th: &[u8; 32],
     challenge: &[u8; 32],
 ) -> Result<NewApprover, String> {
-    let approval_key: [u8; 65] = s.approval_key.array().ok_or("approval key must be 65-byte SEC1")?;
-    let phone_e2e: [u8; 32] = s.phone_e2e.array().ok_or("phone E2E key must be 32 bytes")?;
-    let phone_relay: [u8; 32] = s.phone_relay.array().ok_or("phone relay key must be 32 bytes")?;
+    let approval_key: [u8; 65] = s
+        .approval_key
+        .array()
+        .ok_or("approval key must be 65-byte SEC1")?;
+    let phone_e2e: [u8; 32] = s
+        .phone_e2e
+        .array()
+        .ok_or("phone E2E key must be 32 bytes")?;
+    let phone_relay: [u8; 32] = s
+        .phone_relay
+        .array()
+        .ok_or("phone relay key must be 32 bytes")?;
     bogo_e2e::public_from(&phone_e2e).map_err(|_| "phone E2E key is invalid")?;
     let mailbox = bogo_relay_proto::mailbox(&phone_relay);
     if mailbox != lobby_peer {
         return Err("the submission's relay key is not the phone that joined the offer".into());
     }
-    if !bogo_verify::verify(bogo_verify::P256, &approval_key, &pop_message(th, challenge), &s.proof.0) {
+    if !bogo_verify::verify(
+        bogo_verify::P256,
+        &approval_key,
+        &pop_message(th, challenge),
+        &s.proof.0,
+    ) {
         return Err("proof of possession does not verify".into());
     }
     if !s.encoding_versions.contains(&1) {
         return Err("the phone does not support request encoding version 1".into());
     }
     let attest = match &s.attestation {
-        Some(a) => attest(route, a, th, challenge, &approval_key, &phone_e2e, &phone_relay)?,
+        Some(a) => attest(
+            route,
+            a,
+            th,
+            challenge,
+            &approval_key,
+            &phone_e2e,
+            &phone_relay,
+        )?,
         None if accepts_simulator_registration() => serde_json::json!({
             "environment": "simulator-test",
             "note": "accepted without App Attest by a test build"
@@ -310,8 +355,14 @@ fn check(
         None => return Err("App Attest evidence is missing".into()),
     };
     let push = match (&s.push_token, &s.push_env) {
-        (Some(t), Some(env)) if t.0.len() == 32 && (env == "development" || env == "production") => {
-            Some(Push { token: t.clone(), env: env.clone(), seq: 0 })
+        (Some(t), Some(env))
+            if t.0.len() == 32 && (env == "development" || env == "production") =>
+        {
+            Some(Push {
+                token: t.clone(),
+                env: env.clone(),
+                seq: 0,
+            })
         }
         _ => None,
     };
@@ -348,15 +399,31 @@ fn attest(
         .ok()
         .and_then(|k| k.try_into().ok())
         .ok_or("App Attest key ID must be 32 bytes")?;
-    let object = b64.decode(&a.object).map_err(|_| "App Attest object is not base64")?;
-    let cdh = bogo_attest::registration_client_data_hash(th, challenge, approval_key, phone_e2e, phone_relay);
-    let versions: Vec<&str> = route.cfg.bundle_versions.iter().map(String::as_str).collect();
+    let object = b64
+        .decode(&a.object)
+        .map_err(|_| "App Attest object is not base64")?;
+    let cdh = bogo_attest::registration_client_data_hash(
+        th,
+        challenge,
+        approval_key,
+        phone_e2e,
+        phone_relay,
+    );
+    let versions: Vec<&str> = route
+        .cfg
+        .bundle_versions
+        .iter()
+        .map(String::as_str)
+        .collect();
     let policy = bogo_attest::Policy {
         app_id: &route.cfg.app_id,
         environments: &route.cfg.environments,
         bundle_versions: &versions,
     };
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| "clock")?.as_secs();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "clock")?
+        .as_secs();
     let v = bogo_attest::verify(&object, &cdh, &key_id, &policy, now).map_err(|e| e.to_string())?;
     use sha2::Digest;
     Ok(serde_json::json!({
@@ -387,7 +454,10 @@ impl MacRegistration {
     async fn lobby_send(&self, phase: u8, plaintext: &[u8]) -> Result<(), RegError> {
         let msg = LobbySend {
             msg_id: hex::encode(phase_msg_id(&self.offer_id, phase)),
-            body: hex::encode(phase_body(phase, &seal_phase(&self.key, &self.offer_id, phase, plaintext))),
+            body: hex::encode(phase_body(
+                phase,
+                &seal_phase(&self.key, &self.offer_id, phase, plaintext),
+            )),
         };
         let id = self.offer_hex.clone();
         self.relay
@@ -421,19 +491,33 @@ impl PendingRegistration for MacRegistration {
     /// Answer on the lobby channel and as an envelope in the phone's mailbox,
     /// which survives if the lobby answer is lost.
     async fn answer(self: Box<Self>, committed: &ApproverRecord) -> Result<(), RegError> {
-        let registered = RegisteredPhase { tx_id: B(committed.tx_id.to_vec()), approver_id: B(committed.id.to_vec()) };
+        let registered = RegisteredPhase {
+            tx_id: B(committed.tx_id.to_vec()),
+            approver_id: B(committed.id.to_vec()),
+        };
         let lobby = self
-            .lobby_send(PHASE_REGISTERED, &serde_json::to_vec(&registered).map_err(transport)?)
+            .lobby_send(
+                PHASE_REGISTERED,
+                &serde_json::to_vec(&registered).map_err(transport)?,
+            )
             .await;
-        let route: RouteData = serde_json::from_value(committed.route.clone()).map_err(transport)?;
-        let msg = MacMsg::Registered { tx_id: registered.tx_id.clone(), approver_id: registered.approver_id.clone() };
+        let route: RouteData =
+            serde_json::from_value(committed.route.clone()).map_err(transport)?;
+        let msg = MacMsg::Registered {
+            tx_id: registered.tx_id.clone(),
+            approver_id: registered.approver_id.clone(),
+        };
         let id = bogo_e2e::message_id();
         let envelope = bogo_e2e::seal(
             &self.e2e,
             &self.phone_e2e,
             &self.bogo_id,
             &committed.id,
-            bogo_e2e::Header { direction: bogo_e2e::Direction::MacToPhone, kind: msg.kind(), id },
+            bogo_e2e::Header {
+                direction: bogo_e2e::Direction::MacToPhone,
+                kind: msg.kind(),
+                id,
+            },
             &serde_json::to_vec(&msg).map_err(transport)?,
         )
         .map_err(transport)?;

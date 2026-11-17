@@ -90,7 +90,13 @@ impl Home {
         let home = Home {
             root: root.to_path_buf(),
         };
-        for dir in [root, &home.keys_dir(), &home.log_dir(), &home.state_dir(), &home.run_dir()] {
+        for dir in [
+            root,
+            &home.keys_dir(),
+            &home.log_dir(),
+            &home.state_dir(),
+            &home.run_dir(),
+        ] {
             match std::fs::symlink_metadata(dir) {
                 Ok(_) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -102,12 +108,18 @@ impl Home {
             }
             let meta = std::fs::symlink_metadata(dir).map_err(io(dir))?;
             if !meta.is_dir() {
-                return Err(unsafe_path(dir, "must be a directory, not a symlink or file"));
+                return Err(unsafe_path(
+                    dir,
+                    "must be a directory, not a symlink or file",
+                ));
             }
             if meta.permissions().mode() & 0o077 != 0 {
                 return Err(unsafe_path(
                     dir,
-                    &format!("has mode {:o}; it must be 0700", meta.permissions().mode() & 0o777),
+                    &format!(
+                        "has mode {:o}; it must be 0700",
+                        meta.permissions().mode() & 0o777
+                    ),
                 ));
             }
         }
@@ -146,7 +158,10 @@ impl Home {
         let mine = file.metadata().map_err(io(&path))?.uid();
         let root_owner = std::fs::metadata(&self.root).map_err(io(&self.root))?.uid();
         if mine != root_owner {
-            return Err(unsafe_path(&self.root, "is not owned by the user running BOGO"));
+            return Err(unsafe_path(
+                &self.root,
+                "is not owned by the user running BOGO",
+            ));
         }
         match file.try_lock() {
             Ok(()) => Ok(WriterLock { _file: file }),
@@ -161,9 +176,8 @@ impl Home {
     pub fn keys(&self, _lock: &WriterLock) -> Result<MacKeys, StateError> {
         let e2e_path = self.keys_dir().join("mac_e2e.key");
         let relay_path = self.keys_dir().join("mac_relay.key");
-        let mut e2e_raw = self.key_file(&e2e_path, || {
-            bogo_e2e::secret_bytes(&bogo_e2e::keypair().0)
-        })?;
+        let mut e2e_raw =
+            self.key_file(&e2e_path, || bogo_e2e::secret_bytes(&bogo_e2e::keypair().0))?;
         let mut relay_raw = self.key_file(&relay_path, || {
             SigningKey::generate(&mut rand::rngs::OsRng).to_bytes()
         })?;
@@ -302,7 +316,11 @@ impl Home {
                     .into_iter()
                     .map(|a| (a.entry.id.text(), a))
                     .collect(),
-                agents: agents.agents.into_iter().map(|a| (a.id.text(), a)).collect(),
+                agents: agents
+                    .agents
+                    .into_iter()
+                    .map(|a| (a.id.text(), a))
+                    .collect(),
             },
             seq,
         ))
@@ -359,7 +377,9 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StateError> {
         .ok_or_else(|| StateError::Io(format!("{} has no parent", path.display())))?;
     let tmp = dir.join(format!(
         ".{}.tmp",
-        path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()
+        path.file_name()
+            .map(|n| n.to_string_lossy())
+            .unwrap_or_default()
     ));
     let mut f = OpenOptions::new()
         .create(true)
@@ -368,7 +388,9 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StateError> {
         .mode(0o600)
         .open(&tmp)
         .map_err(io(&tmp))?;
-    f.write_all(bytes).and_then(|_| f.sync_all()).map_err(io(&tmp))?;
+    f.write_all(bytes)
+        .and_then(|_| f.sync_all())
+        .map_err(io(&tmp))?;
     std::fs::rename(&tmp, path).map_err(io(path))?;
     File::open(dir).and_then(|d| d.sync_all()).map_err(io(dir))
 }

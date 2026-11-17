@@ -13,7 +13,12 @@ pub struct Relay {
 }
 
 impl Relay {
-    pub fn new(url: &str, service: &str, root_pem: Option<&[u8]>, key: SigningKey) -> Result<Relay, String> {
+    pub fn new(
+        url: &str,
+        service: &str,
+        root_pem: Option<&[u8]>,
+        key: SigningKey,
+    ) -> Result<Relay, String> {
         let root = root_pem
             .map(reqwest::Certificate::from_pem)
             .transpose()
@@ -39,7 +44,9 @@ impl Relay {
         if let Some(c) = slot.clone() {
             return Ok(c);
         }
-        let c = Arc::new(Client::connect(&self.url, &self.service, &self.key, self.http.clone()).await?);
+        let c = Arc::new(
+            Client::connect(&self.url, &self.service, &self.key, self.http.clone()).await?,
+        );
         *slot = Some(c.clone());
         Ok(c)
     }

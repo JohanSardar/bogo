@@ -228,7 +228,7 @@ async fn run() -> Result<(), String> {
                         if let Err(e) =
                             restore_handshake(&client, &url, &token, &session, saved).await
                         {
-                            eprintln!("bogo-shim: reconnect handshake: {e}");
+                            tracing::warn!("reconnect handshake: {e}");
                             session.ended.send_replace(true);
                             live.send_replace(None);
                             drop(connection.take());
@@ -255,10 +255,10 @@ async fn run() -> Result<(), String> {
                                 {
                                     Ok(r) => {
                                         if let Err(e) = response(r, &session, false, &out).await {
-                                            eprintln!("bogo-shim: notification stream: {e}");
+                                            tracing::warn!("notification stream: {e}");
                                         }
                                     }
-                                    Err(e) => eprintln!("bogo-shim: notification stream: {e}"),
+                                    Err(e) => tracing::warn!("notification stream: {e}"),
                                 }
                             })
                         };
@@ -271,8 +271,8 @@ async fn run() -> Result<(), String> {
                         session.ended.send_replace(true);
                         notifications.abort();
                     }
-                    Ok(r) => eprintln!("bogo-shim: liveness HTTP {}", r.status()),
-                    Err(e) => eprintln!("bogo-shim: liveness: {e}"),
+                    Ok(r) => tracing::warn!("liveness HTTP {}", r.status()),
+                    Err(e) => tracing::warn!("liveness: {e}"),
                 }
                 live.send_replace(None);
                 drop(connection.take());
@@ -331,7 +331,7 @@ async fn run() -> Result<(), String> {
                     } => result,
                 } }
             } else { Err("BOGO is unreachable".into()) };
-            if let Err(e) = result { eprintln!("bogo-shim: {e}"); if let Some(id) = id { let _ = out.send(error(&id)).await; } }
+            if let Err(e) = result { tracing::warn!("{e}"); if let Some(id) = id { let _ = out.send(error(&id)).await; } }
         });
         while jobs.try_join_next().is_some() {}
     }
@@ -355,6 +355,14 @@ async fn run() -> Result<(), String> {
 }
 #[tokio::main]
 async fn main() {
+    // Diagnostics go to stderr, which the MCP client keeps. `BOGO_LOG` overrides the filter.
+    let filter = tracing_subscriber::EnvFilter::try_from_env("BOGO_LOG")
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("bogo_shim=warn"));
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .with_ansi(false)
+        .init();
     if let Err(e) = run().await {
         eprintln!("bogo-shim: {e}");
         std::process::exit(1);

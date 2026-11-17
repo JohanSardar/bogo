@@ -14,7 +14,6 @@ axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 futures = "0.3"
-tower = { version = "0.5", features = ["util"] }
 sha2 = "0.10"
 rand = "0.8"
 

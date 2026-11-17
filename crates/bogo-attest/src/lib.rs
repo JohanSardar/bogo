@@ -15,8 +15,6 @@ use x509_cert::{
 };
 
 pub const APPLE_ROOT_PEM: &[u8] = include_bytes!("../assets/apple-app-attestation-root.pem");
-pub const APPLE_ROOT_SHA256: &str =
-    "1cb9823ba28ba6ad2d33a006941de2ae4f513ef1d4e831b9f7e0fa7b6242c932";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
     Decode,
@@ -430,4 +428,27 @@ pub fn registration_client_data_hash(
         .concat(),
     )
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pinned root is Apple's App Attestation Root CA, and nothing else: the SHA-256 of
+    /// its DER encoding, as `openssl x509 -outform der | shasum -a 256` prints it.
+    #[test]
+    fn bundled_root_is_apples_app_attestation_root() {
+        let der = Certificate::from_pem(APPLE_ROOT_PEM)
+            .unwrap()
+            .to_der()
+            .unwrap();
+        let hex: String = Sha256::digest(der)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(
+            hex,
+            "1cb9823ba28ba6ad2d33a006941de2ae4f513ef1d4e831b9f7e0fa7b6242c932"
+        );
+    }
 }

@@ -129,7 +129,12 @@ impl Hub {
         }
     }
 
-    async fn deliver_loop(self: Arc<Self>, a: ApproverRecord, out: Outbound, mut rx: watch::Receiver<Phase>) {
+    async fn deliver_loop(
+        self: Arc<Self>,
+        a: ApproverRecord,
+        out: Outbound,
+        mut rx: watch::Receiver<Phase>,
+    ) {
         let Some(route) = self.route(&a) else { return };
         let mut backoff = Duration::from_millis(500);
         loop {
@@ -219,7 +224,12 @@ impl Hub {
         if let Some(a) = st.approvers.get_mut(id) {
             a.active = false;
         }
-        let stale: Vec<_> = st.deliveries.keys().filter(|(a, _)| a == id).cloned().collect();
+        let stale: Vec<_> = st
+            .deliveries
+            .keys()
+            .filter(|(a, _)| a == id)
+            .cloned()
+            .collect();
         for key in stale {
             if let Some(tx) = st.deliveries.remove(&key) {
                 let _ = tx.send(Phase::Over);
@@ -249,13 +259,19 @@ impl Hub {
             .iter()
             .any(|a| a.id == new.id || a.tx_id == new.tx_id || a.sig_pk == new.sig_pk);
         if seen_before {
-            pending.refuse("this key or transcript is already registered").await;
-            return Err(RegError::Refused("this key or transcript is already registered".into()));
+            pending
+                .refuse("this key or transcript is already registered")
+                .await;
+            return Err(RegError::Refused(
+                "this key or transcript is already registered".into(),
+            ));
         }
         let committed = match self.sink.commit(name, kind, &new).await {
             Ok(c) => c,
             Err(e) => {
-                pending.refuse("the Mac could not record the registration").await;
+                pending
+                    .refuse("the Mac could not record the registration")
+                    .await;
                 return Err(RegError::Commit(e.0));
             }
         };
@@ -287,10 +303,17 @@ impl InboundHandler for Hub {
                 hub.mark(&id, &req, Phase::Seen);
                 Ok(())
             }
-            Inbound::Approval { req, alg, proof, .. } => {
+            Inbound::Approval {
+                req, alg, proof, ..
+            } => {
                 let effects = hub
                     .sink
-                    .decision(Decision::Approval { approver: id, req, alg, proof })
+                    .decision(Decision::Approval {
+                        approver: id,
+                        req,
+                        alg,
+                        proof,
+                    })
                     .await
                     .map_err(|_| Retry)?;
                 hub.spawn_effects(effects);
@@ -299,7 +322,11 @@ impl InboundHandler for Hub {
             Inbound::Denial { req, note, .. } => {
                 let effects = hub
                     .sink
-                    .decision(Decision::Denial { approver: id, req, note })
+                    .decision(Decision::Denial {
+                        approver: id,
+                        req,
+                        note,
+                    })
                     .await
                     .map_err(|_| Retry)?;
                 hub.spawn_effects(effects);
@@ -308,7 +335,11 @@ impl InboundHandler for Hub {
             Inbound::Pause { agent, epoch, .. } => {
                 let effects = hub
                     .sink
-                    .decision(Decision::Pause { approver: id, agent, epoch })
+                    .decision(Decision::Pause {
+                        approver: id,
+                        agent,
+                        epoch,
+                    })
                     .await
                     .map_err(|_| Retry)?;
                 hub.spawn_effects(effects);
@@ -343,7 +374,9 @@ impl InboundHandler for Hub {
                 }
                 Ok(())
             }
-            Inbound::RouteUpdate { seq, route: data, .. } => {
+            Inbound::RouteUpdate {
+                seq, route: data, ..
+            } => {
                 let changed = hub
                     .sink
                     .route_update(id, seq, data.clone())
@@ -371,8 +404,12 @@ impl Hub {
             };
             for id in to {
                 self.mark(&id, &req, Phase::Over);
-                let Some(a) = self.approver(&id) else { continue };
-                let Some(route) = self.route(&a) else { continue };
+                let Some(a) = self.approver(&id) else {
+                    continue;
+                };
+                let Some(route) = self.route(&a) else {
+                    continue;
+                };
                 let notice = notice.clone();
                 tokio::spawn(async move {
                     retry("notice", &a, || route.notice(&a, &req, &notice)).await;

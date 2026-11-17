@@ -5,11 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+# Not `[lints] workspace = true`: the workspace forbids `unsafe`, and `bogo_rs_verify` is the one
+# `extern "C"` export the Lean core calls. Every other item is checked as `unsafe`-free.
 [lints.rust]
 unsafe_code = "warn"
 
 [lints.clippy]
-all = "warn"
+all = { level = "warn", priority = -1 }
 
 [dependencies]
 p256 = { version = "0.13", features = ["ecdsa"] }

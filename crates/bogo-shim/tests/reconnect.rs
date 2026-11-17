@@ -8,11 +8,10 @@ async fn start_front(address: &str, log: &std::path::Path) -> Child {
     let child = Command::new(
         std::env::var_os("BOGO_REVIEW_STANDIN")
             .map(std::path::PathBuf::from)
+            // bogo-front's example sits beside the built binaries, in `examples/`. Test
+            // executables themselves move between Cargo versions, so locate it from a binary.
             .unwrap_or_else(|| {
-                std::env::current_exe()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
+                std::path::Path::new(env!("CARGO_BIN_EXE_bogo-shim"))
                     .parent()
                     .unwrap()
                     .join("examples/standin")
