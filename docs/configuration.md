@@ -104,7 +104,7 @@ are refused. Quote names containing dots in TOML.
 |---|---|---|
 | `policy` | `"allow"`, `"approve"`, `"deny"`; omitted uses `defaults.policy`. | Other spellings/types. |
 | `justification` | `"optional"` (default) or `"required"` for protected calls. Justification is signed but removed before forwarding. | Other spellings/types. |
-| `highlight` | Map of argument paths to display formats, default `{}`. It changes presentation, not authorization or argument values. | Invalid paths, invalid formats, non-string formats. |
+| `highlight` | Map of argument paths to display formats, default `{}`. It changes presentation, not authorization or argument values. | Invalid paths, invalid formats, non-string formats, or more than one `title`, `subtitle` or `image` in an entry. |
 | `approvers` | Eligible registered approver names; default `[]` means all registered approvers. | Blank names, duplicate names, non-string elements. Unknown names are accepted in config but cannot approve. |
 | `require` | `"any"` (default), or `{ k = N }` for N distinct approvers. | Other strings/types; missing `k`, extra keys, non-integer k, k outside `1..4294967295`. A tool entry with a nonempty `approvers` list and k greater than its length is refused. |
 | `on_deny` | `"any"` (default): one pending denial ends it. `"when_unreachable"`: ends once remaining eligible approvers cannot reach the threshold. | Other spellings/types. A denial after settlement is ignored in both modes. |
@@ -115,12 +115,21 @@ are refused. Quote names containing dots in TOML.
 | `select` | Optional name of one top-level argument whose string value picks a per-action entry (below). The selected argument is also highlighted first: in the format `highlight` gives it, else as text. | Empty, or characters other than ASCII letters, digits, `_`, `.`, `-`. |
 
 Highlight paths support object keys separated by dots and unsigned u32 array
-indices: `amount`, `payment.amount`, `items[0].price`, `[2]`. Empty dot segments,
+indices: `amount`, `payment.amount`, `items[0].price`, `[2]`. A numeric dot
+segment is also an array index, so `items.0.price` means `items[0].price`. Empty dot segments,
 unmatched brackets, negative/nondigit/overflowing indices and stray `]` fail.
-Formats are `text`, `usd_cents`, or three lowercase ASCII letters plus `_minor`
+Formats are `text`, `title`, `subtitle`, `image`, `usd_cents`, or three lowercase ASCII letters plus `_minor`
 (e.g. `eur_minor`). The parser does **not** check those three letters against an
 ISO currency registry: `zzz_minor` passes. Money display expects an integer
 minor-unit value; unformattable values remain visible as raw values.
+
+`title` is the card heading, `subtitle` is its short description (for example,
+the merchant or recipient), and `image` identifies an HTTPS picture link to show
+large on the card. Each role may appear at most once per entry. The first money
+highlight supplies the price; `text` highlights supply extra details. The agent's
+justification is the reason. These hints are signed with the request and change
+presentation only, never authorization, forwarding, arguments or logs. `select`
+still leads the highlights, including when its field has a role.
 
 Output filter paths use a different grammar. A bare name such as `number`
 matches that key recursively in nested objects/arrays. A dotted path such as
@@ -228,6 +237,11 @@ justification = "required"
 highlight = { name = "text" }
 expiry = "10m"
 filter_output = ["number", "cvc"]
+
+[tools."stripe__call_write_tool[name=spend-request_create]"]
+policy = "approve"
+justification = "required"
+highlight = { "arguments.lineItem.0.name" = "title", "arguments.lineItem.0.image_url" = "image", "arguments.merchantName" = "subtitle", "arguments.amount" = "usd_cents", "arguments.context" = "text", "arguments.test" = "text" }
 
 [tools."stripe__call_write_tool[name=ucp_catalog_search]"]
 policy = "allow"
