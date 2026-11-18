@@ -1,12 +1,15 @@
 # Changelog
 
 Changes a BOGO user would notice. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). There are no tagged
-releases yet; the first tag will collect everything under **Unreleased**.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each release is a
+`v<version>` tag with downloads on the
+[releases page](https://github.com/JohanSardar/bogo/releases).
 Changes to the BOGO tab of the iPhone app are listed in the
 [iPhone app's changelog](https://github.com/JohanSardar/apple-bridge-iphone/blob/main/CHANGELOG.md).
 
 ## Unreleased
+
+## [0.1.0] - 2026-11-17
 
 ### Added
 
