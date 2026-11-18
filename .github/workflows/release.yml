@@ -1,0 +1,106 @@
+# Pushing a version tag (v0.1.0, or a pre-release such as v0.2.0-rc.1) builds BOGO's Mac
+# programs for Apple Silicon and publishes them as a GitHub release, on GitHub-hosted runners
+# only. The release rule is in docs/release.md; install.sh downloads what this publishes.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # The oldest macOS the binaries run on. Apple Silicon Macs start at macOS 11.
+  MACOSX_DEPLOYMENT_TARGET: "13.0"
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check the tag
+        id: tag
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          crate="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
+          case "$version" in
+            *-*) prerelease=true ;;
+            *)
+              prerelease=false
+              # A real release must match the workspace version and have a changelog entry.
+              [ "$version" = "$crate" ] || { echo "tag $tag does not match Cargo.toml version $crate"; exit 1; }
+              grep -q "^## \[$version\]" CHANGELOG.md || { echo "CHANGELOG.md has no '## [$version]' entry"; exit 1; }
+              ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+      - uses: ./.github/actions/lean
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      # The proofs and pinned `#print axioms` (BogoProofs/Axioms.lean), and the vectors, in this build too.
+      - run: make proofs
+      - run: make vectors
+
+      # Default features only: no software test approver, no test registration.
+      - name: Build
+        env:
+          BOGO_VERSION: ${{ steps.tag.outputs.version }}
+        run: BOGO_COMMIT="${GITHUB_SHA::12}" cargo build --release --locked -p bogo -p bogo-shim
+
+      - name: Check the binaries
+        run: |
+          set -eu
+          for bin in bogo bogo-shim; do
+            f="target/release/$bin"
+            file "$f" | grep -q 'arm64' || { echo "$bin is not arm64"; exit 1; }
+            # Apple Silicon runs only signed code; the linker's ad-hoc signature must be there.
+            codesign --verify --strict "$f"
+            codesign -dv "$f" 2>&1 | grep -E '^(Signature|CodeDirectory|Identifier)'
+            # Only system libraries: nothing from the runner's Lean or Homebrew.
+            if otool -L "$f" | tail -n +2 | awk '{print $1}' | grep -v -E '^(/usr/lib/|/System/Library/)'; then
+              echo "$bin links a library a fresh Mac does not have"; exit 1
+            fi
+          done
+          target/release/bogo --version
+          # The software test approver is a test feature. Its command must not exist here.
+          if target/release/bogo soft x y 2>/dev/null; then echo "bogo has the soft command"; exit 1; fi
+          target/release/bogo soft x y 2>&1 | grep -q "unrecognized subcommand 'soft'"
+
+      - name: Package
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -eu
+          mkdir dist stage
+          cp target/release/bogo target/release/bogo-shim LICENSE stage/
+          tar -czf dist/bogo-aarch64-apple-darwin.tar.gz -C stage bogo bogo-shim LICENSE
+          (cd dist && shasum -a 256 bogo-aarch64-apple-darwin.tar.gz > SHA256SUMS && cat SHA256SUMS)
+          # This version's changelog entry, or Unreleased for a pre-release that has none.
+          notes() { awk -v h="$1" 'index($0, h) == 1 { on = 1; next } on && /^## / { exit } on' CHANGELOG.md; }
+          notes "## [$VERSION]" > dist/notes.md
+          [ -s dist/notes.md ] || notes "## Unreleased" > dist/notes.md
+          # shellcheck disable=SC2016 # the backticks are Markdown
+          printf '\nInstall: `curl -fsSL https://bogo.eilmer.si/install.sh | sh`\n' >> dist/notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.tag.outputs.prerelease }}
+        run: |
+          flag=""
+          [ "$PRERELEASE" = true ] && flag="--prerelease"
+          gh release create "$GITHUB_REF_NAME" $flag --verify-tag \
+            --title "BOGO ${GITHUB_REF_NAME}" --notes-file dist/notes.md \
+            dist/bogo-aarch64-apple-darwin.tar.gz dist/SHA256SUMS
