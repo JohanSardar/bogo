@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs BOGO's Mac programs, `bogo` and `bogo-shim`, from a GitHub release.
 #
-#   curl -fsSL https://bogo.eilmer.si/install.sh | sh
+#   curl -fsSL https://bogo.eilmer.si:8443/install.sh | sh
 #
 # BOGO_VERSION      a release tag such as v0.1.0 (default: the latest release)
 # BOGO_INSTALL_DIR  where the programs go (default: ~/.local/bin)

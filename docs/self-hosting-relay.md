@@ -67,6 +67,32 @@ Tailscale Funnel and give the relay that name, for example
 or run the relay with your own certificate:
 `bogo-relay --listen 0.0.0.0:8443 --service relay.example.com:8443 --cert cert.pem --key key.pem`.
 
+## Check it works
+
+```sh
+curl https://relay.example.com/healthz
+```
+
+answers `{"status":"ok","push":false}`. `push` says whether it wakes phones.
+
+## Waking phones
+
+A relay wakes phones only with an APNs push key for the app's bundle ID. The
+public relay has one. Yours can only use one from the Apple developer team that
+publishes the app, so for the TestFlight app there are two choices: give the
+Mac that key in `[apns]` (see [configuration](configuration.md)) and it sends
+its own pushes through any relay, or go without pushes and open BOGO to see
+waiting requests. If you build and sign the app yourself, give your relay your
+own key:
+
+```sh
+bogo-relay --apns-key AuthKey.p8 --apns-key-id KEYID --apns-team-id TEAMID --apns-topic your.bundle.id
+```
+
+or set `BOGO_RELAY_APNS_KEY`, `BOGO_RELAY_APNS_KEY_ID`,
+`BOGO_RELAY_APNS_TEAM_ID` and `BOGO_RELAY_APNS_TOPIC`. The relay reads the key
+once at start and never logs it. Each push says only "Approval requested".
+
 ## What the relay does with no flags
 
 `bogo-relay` alone serves plain HTTP on `127.0.0.1:8080`, keeps its SQLite

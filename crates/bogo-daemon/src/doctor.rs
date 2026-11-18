@@ -119,9 +119,6 @@ pub async fn doctor(root: &Path, client_home: Option<&Path>) -> Result<()> {
                     setup::APP_ID
                 ));
             }
-            if config.apns.is_none() {
-                r.note("no [apns] key: the phone is not woken by a push; requests show when you open BOGO");
-            }
         }
     }
 

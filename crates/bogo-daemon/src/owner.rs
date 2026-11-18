@@ -3,6 +3,7 @@ use a::{ApproverRoute, OwnerPrompt};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::io::IsTerminal;
 use std::{
     io::Write,
     os::unix::fs::PermissionsExt,
@@ -120,6 +121,7 @@ hide_denied = true
 # BOGO uses the free public relay. To use your own, see docs/self-hosting-relay.md:
 # [relay]
 # url = "https://relay.example.com"
+# The relay wakes the phone; add [apns] only to send pushes with your own key:
 # [apns]
 # key = { secret = "apns_p8" }
 # key_id = "OWNER_SETS"
@@ -576,6 +578,10 @@ pub async fn request(root: &Path, c: Command) -> Result<Value> {
             }
             continue;
         }
+        if let Some(code) = v.get("pair_code").and_then(Value::as_str) {
+            eprintln!("{}", pair_code(code, std::io::stderr().is_terminal()));
+            continue;
+        }
         if let Some(code) = v.get("confirm_code").and_then(Value::as_str) {
             eprint!("Does the iPhone show {code}? [y/N] ");
             std::io::stderr().flush().map_err(error)?;
@@ -648,6 +654,40 @@ impl OwnerPrompt for RemotePrompt {
         let v = n.map(|n| json!({"service":n.service,"name":n.name,"txt":n.txt}));
         let _ = self.send(json!({ "advertise": v })).await;
     }
+    async fn show_code(&self, code: &str) {
+        let _ = self.send(json!({ "pair_code": code })).await;
+    }
+}
+/// The off-network fallback: the pairing code as a QR code (on a terminal)
+/// and as text, for Add Mac → Use a code.
+fn pair_code(code: &str, terminal: bool) -> String {
+    let mut out = String::from(
+        "Not listed on the iPhone (another network, cellular)? Tap Use a code, then scan this or type it:\n",
+    );
+    if terminal && let Ok(qr) = qrcode::QrCode::new(code.as_bytes()) {
+        // Black on white whatever the terminal's colours: two module rows per
+        // line, with a quiet zone of two modules.
+        let width = qr.width() as isize;
+        let colors = qr.to_colors();
+        let dark = |x: isize, y: isize| {
+            (0..width).contains(&x)
+                && (0..width).contains(&y)
+                && colors[(y * width + x) as usize] == qrcode::Color::Dark
+        };
+        let mut y = -2;
+        while y < width + 2 {
+            out.push_str("  ");
+            for x in -2..width + 2 {
+                let fg = if dark(x, y) { 30 } else { 97 };
+                let bg = if dark(x, y + 1) { 40 } else { 107 };
+                out.push_str(&format!("\x1b[{fg};{bg}m\u{2580}"));
+            }
+            out.push_str("\x1b[0m\n");
+            y += 2;
+        }
+    }
+    out.push_str(&format!("  {code}"));
+    out
 }
 fn nearby(v: &Value) -> Option<a::Nearby> {
     Some(a::Nearby {

@@ -25,6 +25,7 @@ use wire::{B, MacMsg, PhoneMsg, RouteData};
 
 pub use registration::accepts_simulator_registration;
 
+/// A Mac's own push key. Optional: without it, the relay wakes the phone.
 pub struct ApnsConfig {
     /// The owner's `.p8`, read at run time only.
     pub key_path: PathBuf,
@@ -145,8 +146,19 @@ impl IphoneRoute {
             .unwrap()
     }
 
-    /// Seal once per message ID and send; a resend is the same bytes.
+    /// Seal once per message ID and send; a resend is the same bytes. With
+    /// `wake`, the relay wakes the phone once it stores the message.
     async fn send(&self, ch: &Channel, id: [u8; 16], msg: &MacMsg) -> Result<(), DeliveryError> {
+        self.send_waking(ch, id, msg, None).await
+    }
+
+    async fn send_waking(
+        &self,
+        ch: &Channel,
+        id: [u8; 16],
+        msg: &MacMsg,
+        wake: Option<bogo_relay_proto::Wake>,
+    ) -> Result<(), DeliveryError> {
         let cached = hold(&self.sealed).get(&id).cloned();
         let envelope = match cached {
             Some(e) => e,
@@ -172,11 +184,24 @@ impl IphoneRoute {
         let to = ch.route.mailbox.clone();
         self.relay
             .call(|c| {
-                let (to, envelope) = (to.clone(), envelope.clone());
-                async move { c.send(&to, id, &envelope).await }
+                let (to, envelope, wake) = (to.clone(), envelope.clone(), wake.clone());
+                async move { c.send_waking(&to, id, &envelope, wake).await }
             })
             .await
             .map_err(err)
+    }
+
+    /// Without its own `[apns]`, the Mac asks the relay to wake the phone. The
+    /// relay gets the phone's push token and nothing about the request.
+    fn relay_wake(&self, ch: &Channel) -> Option<bogo_relay_proto::Wake> {
+        if self.apns.is_some() {
+            return None;
+        }
+        let push = ch.route.push.as_ref()?;
+        Some(bogo_relay_proto::Wake {
+            token: hex::encode(&push.token.0),
+            env: push.env.clone(),
+        })
     }
 
     async fn push(&self, approver: &[u8; 32], ch: &Channel, req: &ReqId) {
@@ -363,8 +388,13 @@ impl ApproverRoute for IphoneRoute {
             pause_epoch: r.pause_epoch,
             arm_delay_ms: r.arm_delay_ms,
         };
-        // The mailbox is the queue; the push is only a wake-up.
-        let (sent, ()) = tokio::join!(self.send(&ch, id, &msg), self.push(&a.id, &ch, &r.req));
+        // The mailbox is the queue; the push is only a wake-up, sent by this
+        // Mac with its own `[apns]` key, or else by the relay.
+        let wake = self.relay_wake(&ch);
+        let (sent, ()) = tokio::join!(
+            self.send_waking(&ch, id, &msg, wake),
+            self.push(&a.id, &ch, &r.req)
+        );
         sent
     }
 

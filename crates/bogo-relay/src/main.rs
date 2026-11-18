@@ -1,9 +1,11 @@
-//! Standalone ciphertext mailbox. No daemon, E2E or APNs dependencies.
+//! Standalone ciphertext mailbox. No daemon or E2E dependencies. With a push
+//! key it also wakes phones: a push that says only that something is waiting.
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, State},
     http::{HeaderMap, StatusCode, Uri, header},
-    routing::post,
+    response::Redirect,
+    routing::{get, post},
 };
 use bogo_relay_proto::*;
 use clap::Parser;
@@ -43,7 +45,50 @@ struct Args {
     /// Messages one mailbox may hold.
     #[arg(long, default_value_t = 1000)]
     mailbox_capacity: u64,
+    /// An APNs key (`.p8`) from the team that owns the app's bundle ID. With
+    /// it, the relay wakes phones that a Mac asks it to wake. Read once at
+    /// start; never logged.
+    #[arg(long, env = "BOGO_RELAY_APNS_KEY", requires_all = ["apns_key_id", "apns_team_id"])]
+    apns_key: Option<PathBuf>,
+    #[arg(long, env = "BOGO_RELAY_APNS_KEY_ID")]
+    apns_key_id: Option<String>,
+    #[arg(long, env = "BOGO_RELAY_APNS_TEAM_ID")]
+    apns_team_id: Option<String>,
+    /// The app's bundle ID.
+    #[arg(
+        long,
+        env = "BOGO_RELAY_APNS_TOPIC",
+        default_value = "com.johansardar.applebridge.ios"
+    )]
+    apns_topic: String,
+    /// Tests only: send pushes to this stand-in for Apple (`https://host:port`).
+    #[arg(
+        long,
+        hide = true,
+        env = "BOGO_RELAY_APNS_STAND_IN",
+        requires = "apns_key"
+    )]
+    apns_stand_in: Option<String>,
+    /// Tests only: an extra root certificate (PEM) for the stand-in.
+    #[arg(
+        long,
+        hide = true,
+        env = "BOGO_RELAY_APNS_STAND_IN_CA",
+        requires = "apns_stand_in"
+    )]
+    apns_stand_in_ca: Option<PathBuf>,
 }
+/// Wakes phones with the relay's push key. It learns a phone's push token and
+/// which mailbox has something waiting, and nothing else.
+struct Pusher {
+    apns: tokio::sync::Mutex<bogo_apns::Client>,
+    /// Tokens Apple called invalid: never pushed to again by this process.
+    dead: Mutex<std::collections::HashSet<String>>,
+    /// Pushes per token in the current minute, so a sender can't flood a phone.
+    recent: Mutex<HashMap<String, (Instant, u32)>>,
+}
+const PUSHES_PER_MINUTE: u32 = 30;
+const PUSH_TOKENS: usize = 10_000;
 /// A pairing room: its owner (the Mac) and the one other seat (the phone).
 struct PairRoom {
     owner: String,
@@ -63,6 +108,7 @@ struct App {
     max_age: u64,
     capacity: u64,
     changed: watch::Sender<u64>,
+    pusher: Option<Pusher>,
 }
 type Shared = Arc<App>;
 type Failure = StatusCode;
@@ -282,8 +328,79 @@ async fn send(
         params![req.to, req.msg_id, id, body, now()],
     ))?;
     internal(tx.commit())?;
+    drop(db);
     app.changed.send_modify(|n| *n = n.wrapping_add(1));
+    // Only a newly stored message wakes the phone; a resend of it doesn't.
+    if let Some(wake) = req.wake {
+        let app = app.clone();
+        tokio::spawn(async move { push(&app, wake, &req.msg_id).await });
+    }
     Ok(StatusCode::OK)
+}
+async fn push(app: &App, wake: Wake, msg_id: &str) {
+    let Some(p) = &app.pusher else { return };
+    let env = match wake.env.as_str() {
+        "development" => bogo_apns::Environment::Sandbox,
+        "production" => bogo_apns::Environment::Production,
+        _ => return,
+    };
+    if !valid_hex(&wake.token, 32) || hold(&p.dead).contains(&wake.token) {
+        return;
+    }
+    {
+        let mut recent = hold(&p.recent);
+        let now = Instant::now();
+        recent.retain(|_, (start, _)| now.duration_since(*start) < Duration::from_secs(60));
+        if recent.len() >= PUSH_TOKENS && !recent.contains_key(&wake.token) {
+            return;
+        }
+        let (_, count) = recent.entry(wake.token.clone()).or_insert((now, 0));
+        if *count >= PUSHES_PER_MINUTE {
+            return;
+        }
+        *count += 1;
+    }
+    match p.apns.lock().await.nudge(env, &wake.token, msg_id).await {
+        Ok(r) if r.status == 200 => {}
+        Ok(r) => {
+            if r.status == 410
+                || (r.status == 400
+                    && matches!(
+                        r.reason.as_deref(),
+                        Some("BadDeviceToken" | "DeviceTokenNotForTopic")
+                    ))
+            {
+                let mut dead = hold(&p.dead);
+                if dead.len() < PUSH_TOKENS {
+                    dead.insert(wake.token);
+                }
+            }
+            eprintln!(
+                "bogo-relay: Apple refused a push: {} {}",
+                r.status,
+                r.reason.as_deref().unwrap_or("")
+            );
+        }
+        Err(e) => eprintln!("bogo-relay: push failed: {e}"),
+    }
+}
+fn hold<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|p| p.into_inner())
+}
+/// Says the relay is up, and whether it wakes phones.
+async fn healthz(State(app): State<Shared>) -> Json<Health> {
+    Json(Health {
+        status: "ok".into(),
+        push: app.pusher.is_some(),
+    })
+}
+async fn front() -> &'static str {
+    "BOGO relay. It passes sealed messages between a Mac and a phone. https://github.com/JohanSardar/bogo\n"
+}
+/// `curl -fsSL https://<relay>/install.sh | sh` installs BOGO: the script
+/// itself is the one in the repository, never served or changed here.
+async fn install() -> Redirect {
+    Redirect::temporary("https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh")
 }
 fn read_messages(app: &App, id: &str) -> Result<Vec<Message>> {
     let db = app
@@ -525,6 +642,34 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
         );
         return Err("no service".into());
     }
+    let pusher = match &args.apns_key {
+        None => None,
+        Some(key) => {
+            let mut apns = bogo_apns::Client::from_file(
+                key,
+                args.apns_key_id.as_deref().unwrap_or_default(),
+                args.apns_team_id.as_deref().unwrap_or_default(),
+                &args.apns_topic,
+            )
+            .map_err(|e| {
+                eprintln!("bogo-relay: {e}");
+                e
+            })?;
+            if let Some(base) = &args.apns_stand_in {
+                let ca = args
+                    .apns_stand_in_ca
+                    .as_ref()
+                    .map(std::fs::read)
+                    .transpose()?;
+                apns = apns.stand_in(base, ca.as_deref())?;
+            }
+            Some(Pusher {
+                apns: tokio::sync::Mutex::new(apns),
+                dead: Mutex::new(Default::default()),
+                recent: Mutex::new(HashMap::new()),
+            })
+        }
+    };
     let db = Connection::open(&args.database)?;
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
         CREATE TABLE IF NOT EXISTS allowlist(recipient TEXT NOT NULL,sender TEXT NOT NULL,PRIMARY KEY(recipient,sender));
@@ -540,8 +685,17 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
         max_age: args.max_message_age,
         capacity: args.mailbox_capacity,
         changed: watch::channel(0).0,
+        pusher,
     });
+    let pushing = if app.pusher.is_some() {
+        "; it wakes phones with its push key"
+    } else {
+        ""
+    };
     let router = Router::new()
+        .route("/", get(front))
+        .route("/healthz", get(healthz))
+        .route("/install.sh", get(install))
         .route("/v1/auth/challenge", post(challenge))
         .route("/v1/auth/verify", post(verify))
         .route("/v1/allow", post(allow))
@@ -557,7 +711,7 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .with_state(app);
     let (Some(cert), Some(key)) = (args.cert, args.key) else {
         println!(
-            "bogo-relay listening with plain HTTP on {}; put HTTPS in front of it (a proxy, tunnel or cloud service)",
+            "bogo-relay listening with plain HTTP on {}; put HTTPS in front of it (a proxy, tunnel or cloud service){pushing}",
             args.listen
         );
         let listener = tokio::net::TcpListener::bind(args.listen).await?;
@@ -585,7 +739,7 @@ async fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    println!("bogo-relay listening with TLS on {}", args.listen);
+    println!("bogo-relay listening with TLS on {}{pushing}", args.listen);
     axum_server::bind_rustls(args.listen, tls)
         .serve(router.into_make_service())
         .await?;

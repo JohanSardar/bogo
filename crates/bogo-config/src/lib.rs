@@ -397,8 +397,6 @@ impl Validator<'_> {
         };
         let apns = f.apns.map(|a| self.apns(a)).transpose()?;
         let iphone = f.approvers.iphone.map(|i| self.iphone(i)).transpose()?;
-        // Without [apns] the phone is not woken by a push: requests still wait in its relay
-        // mailbox and show when BOGO is opened. `bogo doctor` says so.
         let mut upstreams = BTreeMap::new();
         for (name, u) in f.upstreams {
             let u = self.upstream(&name, u)?;
