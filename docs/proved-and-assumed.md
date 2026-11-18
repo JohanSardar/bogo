@@ -145,7 +145,7 @@ send can leave the outcome unknown. BOGO does not retry that call; single-use
 permission is not a provider transaction protocol.
 
 See the [threat model](threat-model.md) and
-[verification records](verification/daemon-cli.md) for observed checks and
+[verification records](internal/verification/daemon-cli.md) for observed checks and
 remaining work. Software/simulator approval, local relay tests and synthetic
 attestation rejection tests do not establish Face ID, hardware App Attest,
 public relay operation, APNs delivery or completed Link login.

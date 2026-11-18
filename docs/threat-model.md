@@ -116,7 +116,7 @@ provider authentication, faithful shell/toolchain, genuine app, owner/identity
 origin, clock and storage. They are part of the guarantee, not optional caveats.
 This boundary follows [SPEC §3.19](SPEC.md#319-threat-model).
 
-The recorded [bypass run](verification/sandbox-e2e.md) stopped 145 attempts,
+The recorded [bypass run](internal/verification/sandbox-e2e.md) stopped 145 attempts,
 with zero failures and three controls. It tested direct networking, DNS,
 forwarder proxying, modifying firewall rules, credential exposure in its scanned
 scope, authentication, malformed MCP, forged/replayed approval and cross-agent
@@ -135,5 +135,5 @@ hardware, or provisioning-prefix qualification follows from these records.
 The Link login did not complete; forwarding a test payment request that returned
 “Not authenticated” is not evidence of a successful payment or result filtering
 against an authenticated Link response. Read
-[daemon verification](verification/daemon-cli.md) and
-[sandbox verification](verification/sandbox-e2e.md) for those distinctions.
+[daemon verification](internal/verification/daemon-cli.md) and
+[sandbox verification](internal/verification/sandbox-e2e.md) for those distinctions.

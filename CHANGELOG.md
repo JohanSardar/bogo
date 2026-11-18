@@ -9,6 +9,25 @@ Changes to the BOGO tab of the iPhone app are listed in the
 
 ## Unreleased
 
+### Added
+
+- A five-minute start on the front page: install, get the app, `bogo setup`.
+- [Install and set up](docs/setup.md): what the install, `bogo setup` and
+  `bogo doctor` each change on your Mac.
+- A page per [recipe](docs/recipes/README.md), starting with
+  [Gmail](docs/recipes/gmail.md).
+- FAQ answers on who sends the push and what Apple sees, and on why the
+  iPhone part lives in the Apple Bridge app.
+- A [Code of Conduct](CODE_OF_CONDUCT.md), and a Dependencies section in the
+  [security policy](SECURITY.md).
+
+### Changed
+
+- The build-from-source quick start moved to
+  [Build from source and try it](docs/build-from-source.md).
+- Internal records (tickets, design rounds, verification records, research)
+  moved under [`docs/internal/`](docs/internal/README.md).
+
 ## [0.1.0] - 2026-11-17
 
 ### Added
@@ -52,7 +71,11 @@ Changes to the BOGO tab of the iPhone app are listed in the
 - Per-action policy for wrapper tools such as Link's `call_write_tool`:
   `[tools."tool[arg=value]"]` entries, with a recommended Link setup in the
   [configuration reference](docs/configuration.md).
-- The public relay at `bogo.eilmer.si:8443`.
+- The public relay at `bogo.eilmer.si:8443`. BOGO uses it by default, with no
+  setting; `[relay] url` points a Mac at [your own](docs/self-hosting-relay.md).
+- Pairing over the relay: `bogo approver add` advertises the Mac over Bonjour,
+  so the phone's Add Mac lists Macs nearby, and the 6-digit check runs over a
+  private relay room.
 - User docs: the verified [quick start](README.md#quick-start-on-macos),
   [configuration reference](docs/configuration.md),
   [threat model](docs/threat-model.md) and
@@ -83,3 +106,5 @@ Changes to the BOGO tab of the iPhone app are listed in the
 - A failed `bogo approver add` prints what the phone reported, for example a
   Keychain or App Attest error, instead of always "the phone cancelled".
 - Secrets shorter than 8 characters are refused.
+- `[relay] max_message_age` and `mailbox_capacity` are ignored. Older files
+  still load; retention and capacity are now `bogo-relay` flags.

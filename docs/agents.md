@@ -11,7 +11,7 @@ This prints the agent's token once. BOGO keeps only its hash. Put the token
 where only that agent's MCP client can read it, and never in a project the
 agent can edit.
 
-**The quickest way:** `bogo setup agent` (part of [`bogo setup`](daemon.md#the-short-way-bogo-setup))
+**The quickest way:** `bogo setup agent` (part of [`bogo setup`](setup.md))
 finds Claude Code, Claude Desktop and Cursor configs, moves their MCP servers
 behind BOGO, registers one agent per client and writes its `bogo` entry, with
 the token in a private file named by `BOGO_AGENT_TOKEN_FILE` instead of in the
@@ -33,7 +33,7 @@ Use the absolute path to `bogo-shim`.
 
 ## Claude Code
 
-Tested: the [quick start](../README.md#quick-start-on-macos) runs this way.
+Tested: the [build-from-source demo](build-from-source.md) runs this way.
 
 Write `mcp.json` with only the command, and give Claude the two variables
 through its environment, so the token stays out of the file:

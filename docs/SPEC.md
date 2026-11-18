@@ -172,7 +172,7 @@ Every approver:
 - returns either a signed approval over those exact bytes or a denial,
 - can be revoked on its own.
 
-The owner can register several approvers, each with a name and type (for example "Johan iPhone"). With several approvers in any-of mode, the setup is only as strong as the weakest one.
+The owner can register several approvers, each with a name and type (for example "My iPhone"). With several approvers in any-of mode, the setup is only as strong as the weakest one.
 
 ### 3.14 The iPhone approver
 
@@ -191,7 +191,7 @@ The first approver is a **BOGO section inside the existing Apple Bridge iPhone a
 - Every approval needs Face ID. The approval key lives in the Secure Enclave and works only after Face ID. If Face ID enrollment changes, the key stops working and the phone must be registered again.
 
 **Registration (Add Mac)** uses numeric comparison, like pairing a Bluetooth device. There is no QR code to scan and nothing to type:
-1. On the Mac, the owner runs `bogo approver add "Johan iPhone"`.
+1. On the Mac, the owner runs `bogo approver add "My iPhone"`.
 2. On the phone, the owner opens BOGO → Macs → **Add Mac** and taps their Mac in the list.
 3. Both screens show the same 6 digits.
 4. The owner confirms on the Mac, then confirms on the phone with Face ID. That creates the phone's approval key.
@@ -288,11 +288,11 @@ The owner taps Approve and Face ID confirms. The call runs exactly as approved, 
 
 **7. Phone offline.** The phone is in airplane mode when a request arrives. The request waits. When the phone reconnects, the request appears in the Inbox and the owner can still decide it, as long as the session is alive.
 
-**8. Adding the phone.** The owner runs `bogo approver add "Johan iPhone"` on the Mac and taps Add Mac in the BOGO tab. Both show 382 917. The owner confirms on both, with Face ID on the phone. The phone now appears in `bogo approver list`.
+**8. Adding the phone.** The owner runs `bogo approver add "My iPhone"` on the Mac and taps Add Mac in the BOGO tab. Both show 382 917. The owner confirms on both, with Face ID on the phone. The phone now appears in `bogo approver list`.
 
 **9. Adding an agent.** The owner runs `bogo agent add "Trip planner"` and pastes the printed token into Claude Code's MCP config. From then on, requests from that agent say "Requested by Trip planner". A connection without the token is refused.
 
-**10. A stolen phone.** Someone takes the locked phone. They can see pending requests in the Inbox, but they can't approve anything without Face ID. The owner runs `bogo approver revoke "Johan iPhone"`, and any later approval from that phone is rejected.
+**10. A stolen phone.** Someone takes the locked phone. They can see pending requests in the Inbox, but they can't approve anything without Face ID. The owner runs `bogo approver revoke "My iPhone"`, and any later approval from that phone is rejected.
 
 **11. Face ID changed.** The owner adds a new face in iOS Settings. The phone's BOGO key stops working, and the BOGO tab asks the owner to add the Mac again.
 
@@ -362,7 +362,7 @@ hide_denied = true
 policy = "approve"
 justification = "required"
 highlight = { amount = "usd_cents", currency = "text" }
-approvers = ["Johan iPhone"]
+approvers = ["My iPhone"]
 require = "any"          # or { k = 2 }
 expiry = "10m"           # optional; none by default
 mode = "wait"            # or "pending_retry"

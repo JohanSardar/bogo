@@ -8,11 +8,6 @@
 [![CI](https://github.com/JohanSardar/bogo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JohanSardar/bogo/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/review-dark.png">
-  <img align="right" width="260" src="assets/screenshots/review-light.png" alt="The Review card on iPhone: a shopping agent asks to buy a Rubik's Cube for $11.99, with the agent's justification, a Slide to approve control and a Deny button">
-</picture>
-
 An AI agent gets its power from MCP tools: tools that send email, move files
 and spend money. Once it has a tool, it can call it with any arguments, at any
 time, including when a web page has talked it into something.
@@ -22,17 +17,53 @@ tools are protected. A protected call waits until you see exactly what it will
 do on your phone, slide to approve, and confirm with Face ID. Everything else
 runs as you configured it, and a denied tool never runs.
 
-This repo holds BOGO itself: the Mac daemon, the `bogo` CLI, the shim agents
-connect through, the relay and the proofs. The iPhone approver is the BOGO tab
-of the [Apple Bridge iPhone app](https://github.com/JohanSardar/apple-bridge-iphone).
-[Which repo do I want?](#which-repo-do-i-want)
+## Get started in five minutes
 
-> **Status: early.** The Mac side works end to end with a software test
-> approver, and the iPhone side works in the Simulator. A session on a real
-> iPhone (Face ID, App Attest and push) has not been recorded yet. The
-> TestFlight link admits testers only once Apple's Beta App Review passes the
-> first build, which it hasn't yet. [What is verified](docs/status.md) lists
-> what has been checked.
+<img align="right" width="240" src="assets/approve.gif" alt="Recording of the BOGO tab: a shopping agent's request for a $11.99 Rubik's Cube arrives, the Review card opens, the owner slides to approve, Face ID confirms, and the request shows as approved">
+
+1. **Install BOGO on your Mac** (Apple Silicon). No sudo; it goes into
+   `~/.local/bin`:
+
+   ```sh
+   curl -fsSL https://bogo.eilmer.si:8443/install.sh | sh
+   ```
+
+2. **Get the iPhone app.** BOGO's approver is the BOGO tab of the Apple Bridge
+   iPhone app:
+   [join the TestFlight beta](https://testflight.apple.com/join/dQu75bv1).
+
+3. **Run `bogo setup`.** It starts BOGO, pairs your iPhone, moves the MCP
+   servers you already use in Claude Code, Claude Desktop or Cursor behind
+   BOGO, and makes one protected test call for you to approve.
+
+   ```sh
+   bogo setup
+   ```
+
+The recording shows the last part: a protected call arrives, you check it,
+slide, and Face ID approves it. [Install and set up](docs/setup.md) says what
+each step changes on your Mac, and [recipes](docs/recipes/README.md) add Gmail,
+GitHub, Slack, Stripe or a folder of files with a ready-made policy.
+
+> **Status: early.** The TestFlight link doesn't admit testers yet: the first
+> build hasn't been submitted to Apple's Beta App Review. Until then, build
+> the app from [its repo](https://github.com/JohanSardar/apple-bridge-iphone#build-and-check).
+> No session on a real iPhone (Face ID, App Attest and push on hardware) has
+> been recorded yet. The recording above is the iOS Simulator with the app's
+> built-in stand-in Mac. The Mac side, including the install and `bogo setup`,
+> has been run end to end with a software test approver.
+> [What is verified](docs/status.md) lists what has been checked.
+
+<br clear="right">
+
+<a id="quick-start-on-macos"></a>
+
+### Try it without an iPhone
+
+Build BOGO from source with the **software test approver**, which approves on
+the Mac in place of the phone, and watch a protected call wait for you. It
+signs without Face ID, so never use it to protect real actions.
+[Build from source and try it](docs/build-from-source.md) has the steps.
 
 ### Why BOGO
 
@@ -47,7 +78,10 @@ of the [Apple Bridge iPhone app](https://github.com/JohanSardar/apple-bridge-iph
   a call may run is written in Lean and proved. [What is proved / What is
   assumed](docs/proved-and-assumed.md) says exactly where the proof stops.
 
-<br clear="right">
+This repo holds BOGO itself: the Mac daemon, the `bogo` CLI, the shim agents
+connect through, the relay and the proofs. The iPhone approver is the BOGO tab
+of the [Apple Bridge iPhone app](https://github.com/JohanSardar/apple-bridge-iphone).
+[Which repo do I want?](#which-repo-do-i-want)
 
 ## See it work
 
@@ -66,164 +100,18 @@ of the [Apple Bridge iPhone app](https://github.com/JohanSardar/apple-bridge-iph
 
 Screenshots are from the iPhone Simulator with the app's built-in demo request.
 
-## Get it
+## More ways in
 
-- **Mac (Apple Silicon):** install with one command, no sudo, into
-  `~/.local/bin`:
-
-  ```sh
-  curl -fsSL https://bogo.eilmer.si:8443/install.sh | sh
-  ```
-
-  The short URL forwards to
-  `https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh`, which
-  you can read first or run the same way. It checks the download's SHA-256
-  before installing. Set `BOGO_VERSION` to pin a release or
-  `BOGO_INSTALL_DIR` to install elsewhere, and run it again to upgrade.
-  [Releasing BOGO](docs/release.md) covers versions and signing. To build from
-  source instead, follow the [quick start](#quick-start-on-macos) below.
-- **iPhone:** the BOGO tab is part of the Apple Bridge iPhone app.
-  [Join the TestFlight beta](https://testflight.apple.com/join/dQu75bv1), or
-  [build it from source](https://github.com/JohanSardar/apple-bridge-iphone#build-and-check).
-  The first build is still waiting for Apple's Beta App Review; until it
-  passes, the link says the beta isn't accepting testers. Then
-  [add your iPhone](docs/add-your-iphone.md) to BOGO on your Mac.
-- **Connect an agent:** [Claude Code and other MCP clients](docs/agents.md).
-
-## Quick start on macOS
-
-This runs BOGO on your Mac with a **software test approver** in place of the
-phone, so you can watch a protected call wait for approval, without an iPhone.
-The software test approver signs without Face ID: never use it to protect real
-actions.
-
-Prerequisites: Xcode Command Line Tools, [Rust via rustup](https://rustup.rs/),
-[Lean via elan](https://github.com/leanprover/elan#installation), Node.js and
-npm, Python 3, and an installed, signed-in
-[Claude Code](https://code.claude.com/docs/en/setup) CLI (`claude`). The repo
-pins Lean in `lean/lean-toolchain`. Put elan first on `PATH`, because some
-Python installs ship an unrelated program called `lean`.
-
-Run everything from this repo's root, in **one terminal**. The demo uses a
-fresh private temporary directory and leaves `~/.bogo` alone. Port 18790 must
-be free. No LaunchAgent is loaded.
-
-```sh
-export PATH="$HOME/.elan/bin:$PATH"
-cargo build -p bogo -p bogo-daemon -p bogo-shim --features bogo/test-approvers
-export BOGO_BIN="$PWD/target/debug/bogo"
-export BOGO_SHIM="$PWD/target/debug/bogo-shim"
-export BOGO_DEMO="$(mktemp -d /tmp/bogo-quickstart.XXXXXX)"
-export BOGO_DEMO_HOME="$BOGO_DEMO/home"
-umask 077
-mkdir -p "$BOGO_DEMO/scratch" "$BOGO_DEMO/client"
-"$BOGO_BIN" --home "$BOGO_DEMO_HOME" init
-npm install --prefix "$BOGO_DEMO/upstream" --no-audit --no-fund \
-  @modelcontextprotocol/server-filesystem@2.3.0
-```
-
-Configure a demo policy: at most four live requests per agent, file reads
-allowed, file writes protected. Any tool not listed still needs approval. The
-filesystem server can reach only the scratch directory.
-
-```sh
-cat > "$BOGO_DEMO_HOME/bogo.toml" <<'TOML'
-version = 1
-[server]
-port = 18790
-[defaults]
-policy = "approve"
-max_pending = 4
-[tools.files__read_text_file]
-policy = "allow"
-[tools.files__write_file]
-policy = "approve"
-justification = "required"
-TOML
-"$BOGO_BIN" --home "$BOGO_DEMO_HOME" upstream add files -- \
-  "$(command -v node)" \
-  "$BOGO_DEMO/upstream/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js" \
-  "$BOGO_DEMO/scratch"
-"$BOGO_BIN" --home "$BOGO_DEMO_HOME" serve > "$BOGO_DEMO/daemon.log" 2>&1 &
-BOGO_DAEMON_PID=$!
-```
-
-Check the daemon, register the software test approver and a named agent, and
-write the agent's MCP config. `status` waits for startup and should show
-`running: true` and `upstreams: {files: true}`; if startup failed, read
-`$BOGO_DEMO/daemon.log`. The agent's token goes into an environment variable,
-never into the config file or the terminal.
-
-```sh
-until "$BOGO_BIN" --home "$BOGO_DEMO_HOME" status | grep -q '"running": true'
-do kill -0 "$BOGO_DAEMON_PID" || break; sleep 1; done
-"$BOGO_BIN" --home "$BOGO_DEMO_HOME" status
-"$BOGO_BIN" --home "$BOGO_DEMO_HOME" approver add 'Demo approver' --kind soft
-export BOGO_AGENT_TOKEN="$("$BOGO_BIN" --home "$BOGO_DEMO_HOME" agent add 'Demo agent' \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
-export BOGO_URL=http://127.0.0.1:18790/mcp
-python3 - <<'PY'
-import json, os
-from pathlib import Path
-p = Path(os.environ['BOGO_DEMO']) / 'client' / 'mcp.json'
-p.write_text(json.dumps({'mcpServers': {'bogo': {'command': os.environ['BOGO_SHIM']}}}))
-PY
-"$BOGO_BIN" --home "$BOGO_DEMO_HOME" tools
-```
-
-Ask Claude to read a file and then write one. It runs in the background from
-the empty client directory, with only BOGO's tools enabled. That restriction
-keeps the demo reproducible; it is not a sandbox.
-
-```sh
-printf 'Hello from BOGO\n' > "$BOGO_DEMO/scratch/hello.txt"
-(
-  cd "$BOGO_DEMO/client"
-  claude -p "Use files__read_text_file to read $BOGO_DEMO/scratch/hello.txt. Then use files__write_file to write exactly BOGO APPROVED to $BOGO_DEMO/scratch/approved.txt, with justification 'Quick start protected write'. Report both tool results." \
-    --mcp-config "$BOGO_DEMO/client/mcp.json" --strict-mcp-config \
-    --tools '' --allowedTools 'mcp__bogo__*' --permission-mode dontAsk \
-    < /dev/null > "$BOGO_DEMO/claude.out" 2>&1
-) &
-BOGO_CLAUDE_PID=$!
-until BOGO_REQUEST_ID="$("$BOGO_BIN" --home "$BOGO_DEMO_HOME" request list \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])' 2>/dev/null)"
-do kill -0 "$BOGO_CLAUDE_PID" || break; sleep 2; done
-```
-
-That waits until the write is pending and keeps its request ID. The read
-already ran. The write is waiting for you. Look at what it will do, and see
-that the file doesn't exist yet:
-
-```sh
-"$BOGO_BIN" --home "$BOGO_DEMO_HOME" log search files__write_file
-test ! -e "$BOGO_DEMO/scratch/approved.txt" && printf 'Not written before approval\n'
-```
-
-If the logged `agent_name`, `tool` and `arguments` are the demo write, approve
-it:
-
-```sh
-"$BOGO_BIN" --home "$BOGO_DEMO_HOME" soft 'Demo approver' "$BOGO_REQUEST_ID"
-wait "$BOGO_CLAUDE_PID"
-cat "$BOGO_DEMO/claude.out"
-cat "$BOGO_DEMO/scratch/approved.txt"
-"$BOGO_BIN" --home "$BOGO_DEMO_HOME" log verify
-```
-
-Expect `decision recorded`, Claude's report of both real tool results, the file
-content `BOGO APPROVED`, and `chain intact` with one counted approval. Stop the
-daemon and check its log once more:
-
-```sh
-kill -TERM "$BOGO_DAEMON_PID"
-wait "$BOGO_DAEMON_PID"
-"$BOGO_BIN" --home "$BOGO_DEMO_HOME" log verify
-unset BOGO_AGENT_TOKEN
-```
-
-The demo directory holds the call arguments, the log and the software key. Keep
-it private, and delete that directory when you're done. To run BOGO for real,
-see [Run BOGO on your Mac](docs/daemon.md).
+- **Read the install script first:** the short URL forwards to
+  [`install.sh`](install.sh) in this repo
+  (`https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh`). It
+  checks the download's SHA-256 before installing. `BOGO_VERSION` pins a
+  release, `BOGO_INSTALL_DIR` installs elsewhere, and running it again
+  upgrades. [Releasing BOGO](docs/release.md) covers versions and signing.
+- **Step by step instead of `bogo setup`:** [run BOGO on your
+  Mac](docs/daemon.md), [add your iPhone](docs/add-your-iphone.md) and
+  [connect an agent](docs/agents.md).
+- **Build from source:** [build from source and try it](docs/build-from-source.md).
 
 ## How it works, and why it's safe
 
@@ -300,15 +188,17 @@ Review card are defined once in the [glossary](GLOSSARY.md).
 | [`vectors/`](vectors) | Request bytes and JSON cases shared by the Lean core, Rust and the iPhone app |
 | [`sandbox/`](sandbox) | The reference sandbox that leaves BOGO as an agent's only way out |
 | [`deploy/relay/`](deploy/relay) | How the public relay is deployed |
-| [`docs/`](docs/README.md) | User guides, how it works, and the project's internal records |
+| [`docs/`](docs/README.md) | User guides and how it works; the project's records are in [`docs/internal/`](docs/internal/README.md) |
 
 ## Docs and community
 
-- **[Docs index](docs/README.md)**: use BOGO, run it, and how it works.
+- **[Docs index](docs/README.md)**: install, use and run BOGO, and how it works.
 - **[FAQ](docs/faq.md)** and **[what is verified](docs/status.md)**.
 - **[Contributing](CONTRIBUTING.md)**, including how this project uses AI
   agents and what evidence a change needs.
-- **[Security policy](SECURITY.md)**: report vulnerabilities privately.
+- **[Security policy](SECURITY.md)**: report vulnerabilities privately, and
+  what BOGO depends on.
+- **[Code of Conduct](CODE_OF_CONDUCT.md)**.
 - **[Changelog](CHANGELOG.md)**.
 - BOGO bugs go to [this repo's issues](https://github.com/JohanSardar/bogo/issues/new/choose),
   even when they show up on the phone.

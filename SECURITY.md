@@ -64,7 +64,36 @@ yours.
 
 ## Supported versions
 
-There are no releases yet. Only the latest `main` gets security fixes.
+Only the latest release, and `main`, get security fixes. The latest is on the
+[releases page](https://github.com/JohanSardar/bogo/releases).
+
+## Dependencies
+
+BOGO is Rust, with its decision core in Lean. These are the third-party
+crates that hold keys, check signatures or speak a wire protocol, and why each
+is there. The full list is in [`Cargo.lock`](Cargo.lock); `cargo deny` checks
+it for advisories, licences and sources in CI and in `make check`
+([`deny.toml`](deny.toml)), and Dependabot proposes updates.
+
+| Crate | Used by | Why |
+|---|---|---|
+| `ed25519-dalek` | `bogo-state`, `bogo-verify`, `bogo-relay-proto`, `bogo-approver-soft` | The Mac's identity key, relay mailbox signatures, and the software test approver's signatures |
+| `p256` | `bogo-verify`, `bogo-attest` | Checking the iPhone's Secure Enclave signature on each approval, and App Attest keys |
+| `p384`, `x509-cert`, `der`, `ciborium` | `bogo-attest` | Checking an App Attest statement: its certificate chain up to Apple's root and its CBOR encoding |
+| `x25519-dalek`, `hkdf`, `chacha20poly1305` | `bogo-approver-iphone` | The keys and encryption for each paired phone's channel |
+| `hpke` | `bogo-e2e` | End-to-end encryption of requests and decisions through the relay |
+| `sha2`, `rand` | most crates | Hashing (the log chain, request IDs, pinned downloads) and randomness for keys and nonces |
+| `zeroize` | `bogo-state`, `bogo-apns` | Wiping key material from memory when it's dropped |
+| `jsonwebtoken` | `bogo-apns` | Signing APNs tokens, only when a Mac sends pushes with its own key |
+| `rmcp` | `bogo-front`, `bogo-upstream`, `bogo-daemon` | The MCP protocol, both towards agents and towards upstreams. BOGO's final check depends on its internals, so it is pinned to an exact version |
+| `reqwest`, `rustls`, `axum`, `axum-server`, `tokio` | the daemon, relay and their clients | HTTPS to the relay, APNs and hosted upstreams; the relay's and daemon's HTTP servers. TLS is rustls, not the system's OpenSSL |
+| `rusqlite` | `bogo-relay` | The relay's mailbox store |
+
+The Lean decision core uses only Lean's standard library, pinned in
+[`lean/lean-toolchain`](lean/lean-toolchain). JSON that BOGO signs or checks is
+parsed by its own strict parser (`bogo-json`), not by `serde_json`. The
+iPhone app's dependencies are listed in
+[its security policy](https://github.com/JohanSardar/apple-bridge-iphone/blob/main/SECURITY.md#dependencies).
 
 ## Out of scope
 

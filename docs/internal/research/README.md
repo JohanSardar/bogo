@@ -526,16 +526,16 @@ Apple Bridge.
 Keep these through any cleanup:
 
 - **Formal core.** A Lean model of the decision core, with
-  [proved-and-assumed.md](../proved-and-assumed.md) saying exactly what is
+  [proved-and-assumed.md](../../proved-and-assumed.md) saying exactly what is
   proved. Of the others, only happy has Lean proofs, for its iOS sync logic.
-- **Threat model and ADRs.** [threat-model.md](../threat-model.md) and three
+- **Threat model and ADRs.** [threat-model.md](../../threat-model.md) and three
   ADRs go further than any of the five, except Paseo's SECURITY.md, which is
   comparable for the relay.
 - **Evidence culture.** `docs/verification/` records what was actually run.
   Paseo asks contributors for this in its PR template; BOGO already does it.
 - **Pinned dependencies with reasons.** `rmcp = "=3.10.0"` with the reason in
-  [Cargo.toml](../../Cargo.toml).
-- **Glossary.** [GLOSSARY.md](../../GLOSSARY.md); only Paseo has one too.
+  [Cargo.toml](../../../Cargo.toml).
+- **Glossary.** [GLOSSARY.md](../../../GLOSSARY.md); only Paseo has one too.
 
 ## What could not be checked
 
