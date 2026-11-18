@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version = "1.89"
 publish.workspace = true
+build = "build.rs"
 [features]
 default = []
 test-approvers = ["bogo-daemon/test-approvers"]
