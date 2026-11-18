@@ -1,7 +1,7 @@
 # T3 implementation evidence
 
 Local run, 2026-11-15. Branch `t3/crypto-relay-crates`. No VPS deployment.
-See [the wire contract and reproduction commands](../RELAY-PROTOCOL.md).
+See [the wire contract and reproduction commands](../../RELAY-PROTOCOL.md).
 
 ## Actual client use (verification steps 1–4)
 

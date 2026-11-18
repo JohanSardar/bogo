@@ -569,7 +569,7 @@ Envelope := "BOGOE2E" 0x00 | u8 version=1 | u8 direction | u8 type | 16 bytes ms
 - Pushes are retried until APNs accepts them. The mailbox copy is retried until `seen`. The APNs host follows the environment the phone reported. Provider tokens are ES256, cached and refreshed within Apple's limits ([token auth](https://developer.apple.com/documentation/usernotifications/establishing-a-token-based-connection-to-apns)).
 
 **Registration (numeric comparison, found nearby).** This follows the commitment scheme of Bluetooth LE Secure Connections numeric comparison, so a man in the middle gets one guess at a 6-digit code ([Bluetooth numeric comparison](https://www.bluetooth.com/blog/bluetooth-pairing-part-4/)). Like a Bluetooth device, a waiting Mac is found nearby, not in a public list: it shows itself on its local network with Bonjour. Like [croc](https://github.com/schollz/croc), one secret names a two-seat relay room and keys everything said in it, so the relay, which never sees the secret, reads nothing and lists nothing.
-1. `bogo approver add "Johan iPhone"` creates a 120-bit secret `s`, an ephemeral X25519 `eM`, and opens the relay room `room = SHA-256("bogo-pair-room/v1" ‖ s)[0..16]`, refreshing it while the command runs, and posts `macOffer {ePubM}` there. The command, run from a terminal (which macOS lets use the local network), then advertises a Bonjour service `_bogo-pair._tcp` named after the Mac, whose TXT record `c=` holds the pairing code `bogo1-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx`, plus `@host[:port]` when the Mac uses its own relay. Anyone on the network can read the advert, so the code proves nothing; the digits in step 5 do.
+1. `bogo approver add "My iPhone"` creates a 120-bit secret `s`, an ephemeral X25519 `eM`, and opens the relay room `room = SHA-256("bogo-pair-room/v1" ‖ s)[0..16]`, refreshing it while the command runs, and posts `macOffer {ePubM}` there. The command, run from a terminal (which macOS lets use the local network), then advertises a Bonjour service `_bogo-pair._tcp` named after the Mac, whose TXT record `c=` holds the pairing code `bogo1-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx`, plus `@host[:port]` when the Mac uses its own relay. Anyone on the network can read the advert, so the code proves nothing; the digits in step 5 do.
 2. BOGO → Macs → Add Mac lists the adverts on the phone's network by name. The owner taps their Mac; the phone derives the room from the code and joins it, and the relay gives the room one seat besides its owner. Every room message is sealed with ChaCha20-Poly1305 under `HKDF(s, "bogo-pair-key/v1")`. The phone creates `eP` and sends `ePubP`. The Mac accepts exactly one peer per room, and withdraws the advert.
 3. The Mac sends the commitment `Cm = SHA-256("bogo-reg-commit" ‖ ePubM ‖ ePubP ‖ Nm)`, where `Nm` is 16 random bytes.
 4. The phone sends `Np`, a fresh 16 random bytes. The Mac reveals `Nm`, and the phone checks `Cm`. Both reject an all-zero shared secret.
@@ -801,7 +801,7 @@ bogo serve                                 # daemon entry point that launchd run
 
 **S9. Adding an agent.** `bogo agent add "Trip planner"` logs `agent_added` with the token's hash and prints the token once. Requests then carry agentName "Trip planner". A request without a valid token gets 401.
 
-**S10. Stolen phone.** The Inbox is visible, but Approve needs the Secure Enclave key, which needs Face ID. `bogo approver revoke "Johan iPhone"` logs `approver_revoked`, then applies `approverRevoked`. Later approvals are `ignored(revoked)`. Pending requests that can no longer reach k end. A settled request that counted that approver fails the gate if the rest no longer meet k. A Deny or Pause from the thief only refuses things.
+**S10. Stolen phone.** The Inbox is visible, but Approve needs the Secure Enclave key, which needs Face ID. `bogo approver revoke "My iPhone"` logs `approver_revoked`, then applies `approverRevoked`. Later approvals are `ignored(revoked)`. Pending requests that can no longer reach k end. A settled request that counted that approver fails the gate if the rest no longer meet k. A Deny or Pause from the thief only refuses things.
 
 **S11. Face ID changed.** Signing fails with the key-invalidated error, or a domain-state change is seen. The Mac entry becomes `needsReRegistration`, and the tab asks the owner to add the Mac again. The new registration replaces the old approver ID, and no old votes carry over.
 
@@ -899,7 +899,7 @@ max_pending = <owner sets>               # per-agent flood limit
 [tools."stripe__<spend tool>"]
 policy = "approve"; justification = "required"
 highlight = { amount = "usd_cents", currency = "text", test = "text" }
-approvers = ["Johan iPhone"]; require = "any"    # or { k = 2 }
+approvers = ["My iPhone"]; require = "any"    # or { k = 2 }
 on_deny = "any"                                  # or "when_unreachable"
 expiry = "10m"; mode = "wait"                    # or "pending_retry"
 filter_output = ["url"]; filter_action = "strip" # or "redact"

@@ -1,76 +1,26 @@
 # Running BOGO on the Mac
 
+<a id="the-short-way-bogo-setup"></a>
+
 ## The short way: `bogo setup`
 
 ```sh
 bogo setup
 ```
 
-Setup says in one line what each step does, and skips a step that is already
-done, so it is safe to run again:
-
-1. **home**: creates `~/.bogo` and asks for the few owner values (how many
-   requests an agent may have waiting, how long Approve stays off on the phone,
-   and another port if 8790 is taken). The home accepts the TestFlight, App
-   Store and Xcode builds of the app.
-2. **start**: starts BOGO in the background with a user LaunchAgent.
-3. **phone**: pairs your iPhone with the same 6-digit check as `bogo approver
-   add`; skipped when an approver exists.
-4. **agent**: finds the MCP servers in Claude Code (`~/.claude.json`, including
-   each project's own servers), Claude
-   Desktop and Cursor (`~/.cursor/mcp.json`) and offers to move each one behind
-   BOGO. Each becomes an upstream; credentials in its `env` or `headers` move to
-   `secrets.toml` and are referred to by name. Setup lists each server's tools
-   and suggests a policy from the annotations the server publishes:
-   `readOnlyHint` suggests allow; `destructiveHint`, a name that sends, pays,
-   writes or deletes, or no hint at all suggests approve. You confirm or change
-   each one. The client's entries are replaced by one `bogo` entry that runs
-   `bogo-shim` as its own agent.
-5. **test**: makes one protected call to BOGO's own check tool, which does
-   nothing but answer "pong", and waits for you to approve it on the phone.
-
-Run one step with `bogo setup STEP`. `--yes` takes every suggestion without
-asking, except that it never allows a tool: a suggested allow stays approve.
-`--client-home DIR` looks for client configs in DIR instead of `HOME`.
-
-Setup backs up each client file before its first change, to
-`~/.bogo/setup/backups`. `bogo setup --undo` puts each one back byte for byte;
-the upstreams and secrets it added stay in `bogo.toml` and `secrets.toml`, and
-the agents it added stay until you revoke them.
-
-**Where the agent's token goes.** Setup never shows it. It writes the token to
-`~/.bogo/agents/NAME.token` (0600, in BOGO's private home, which no upstream
-may be pointed at) and puts only that file's path in the client's config, as
-`BOGO_AGENT_TOKEN_FILE`. An agent that has a shell running as you can still
-read that file, as it can read anything your account can; run such agents in
-the [reference sandbox](../sandbox/README.md).
+Setup creates the home, starts BOGO in the background, pairs your iPhone,
+moves your MCP clients' servers behind BOGO and makes one protected test call.
+`bogo doctor` checks the result at any time, and `bogo setup --undo` puts back
+the client files setup changed. [Install and set up](setup.md) covers each
+step and what it changes on your Mac. The rest of this page is every command
+setup runs for you, and the ones it doesn't.
 
 ## Recipes
 
-`bogo upstream add NAME` with no command sets up a known server at a pinned
-version, asks for its credentials (with echo off) and writes a policy:
-
-| Recipe | Server | Allowed | Waits for the phone |
-|---|---|---|---|
-| `gmail` | [workspace-mcp](https://github.com/taylorwilsdon/google_workspace_mcp) 2.3.0 | searching and reading mail, labels and filters | sending, drafting, attachments, changing labels or filters |
-| `github` | [github-mcp-server](https://github.com/github/github-mcp-server) 2.0.3, checked against its SHA-256 | tools GitHub marks read-only, once you confirm | writes, pull requests, issues, merges |
-| `slack` | [slack-mcp-server](https://github.com/korotovsky/slack-mcp-server) 1.3.0 | what you confirm | posting messages |
-| `stripe` | Stripe's hosted server (test-mode keys only) | what you confirm | payment links, refunds, invoices and other writes |
-| `files` | `@modelcontextprotocol/server-filesystem` 2.3.0, one folder | reading and listing | writing, editing, moving |
-
-A recipe prints the sign-in steps you do yourself; for Gmail that is your own
-Google Cloud OAuth client and a Google sign-in link the first call returns.
-Stripe hosts its server, so that recipe can't pin a version. Servers install
-under `~/.local/share/bogo/upstreams`, outside BOGO's home. `bogo upstream
-recipes` lists them.
-
-## Checking a setup: `bogo doctor`
-
-`bogo doctor` checks, one line each, that the config loads, BOGO runs and
-answers on its port (or the port is free), a phone is paired, the App Attest
-environments accept TestFlight, the relay answers, each upstream starts, and
-each client config's `bogo` entry reaches BOGO with an active agent's token.
-Each problem comes with its fix. It exits nonzero if anything failed.
+`bogo upstream add NAME` with no command sets up a known server (`gmail`,
+`github`, `slack`, `stripe` or `files`) at a pinned version, asks for its
+credentials (with echo off) and writes a policy. [Recipes](recipes/README.md)
+has a page for each.
 
 ## Logs
 
@@ -147,7 +97,7 @@ policy = "allow"
 policy = "approve"
 justification = "required"
 # require = { k = 2 }
-# approvers = ["Johan iPhone", "Second approver"]
+# approvers = ["My iPhone", "Second approver"]
 [agents.Researcher.tools.files__write_file]
 policy = "deny"
 ```
@@ -175,9 +125,9 @@ label. These three non-secret settings are copied into the user LaunchAgent;
 credentials are not copied into it.
 
 ```sh
-bogo approver add 'Johan iPhone'
+bogo approver add 'My iPhone'
 bogo approver list
-bogo approver revoke 'Johan iPhone'
+bogo approver revoke 'My iPhone'
 ```
 
 While `approver add` runs, the Mac shows up in BOGO → Macs → Add Mac on any

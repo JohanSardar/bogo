@@ -20,9 +20,9 @@ the approach before you write it.
 ## How this project uses AI
 
 Most of BOGO's code and docs are written by AI coding agents, working from
-written tickets (in [`docs/tickets/`](docs/tickets/)) under the owner's review.
+written tickets (in [`docs/tickets/`](docs/internal/tickets/)) under the owner's review.
 Every change is checked by running it, and the results are recorded (in
-[`docs/verification/`](docs/verification/)). Agents don't merge their own work.
+[`docs/verification/`](docs/internal/verification/)). Agents don't merge their own work.
 
 You're welcome to use AI tools too. You are responsible for every line you
 submit: understand it, run it, and show what you saw. A pull request that
@@ -30,7 +30,7 @@ can't explain or demonstrate its own change will be closed.
 
 ## Set up
 
-You need the same tools as the [quick start](README.md#quick-start-on-macos):
+You need the same tools as [building from source](docs/build-from-source.md):
 Xcode Command Line Tools, Rust via rustup, Lean via elan (first on your
 `PATH`), and Node.js for the demo upstream.
 

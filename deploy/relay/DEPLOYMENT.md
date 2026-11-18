@@ -207,7 +207,7 @@ Applied the `agent-testing` skill. Earlier artifact verification passed:
 - Sol review of `8de9636`: **APPROVE**, no findings. Reviewer independently
   used a local TLS relay for bidirectional sealed delivery and restart recovery.
 
-[Sol review](t3-thread://v2/11126312-8eb7-42aa-9f84-bfeaf199a584/thread:delegated-task:command%3Amcp%3Ab0bc3b0a-38d4-4403-bf0b-1d204bfdaf3b%3Adelegate-task%3Abogo-relay-sol-r1-20261115)
+The Sol review ran in a local agent session, which has no public link.
 
 ## Not checked
 

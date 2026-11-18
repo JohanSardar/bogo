@@ -2,8 +2,11 @@
 
 Your iPhone is where you approve. BOGO on your Mac sends it each protected call,
 you check it and slide to approve, and Face ID signs your answer. This page
-takes you from nothing to your first approval. You need BOGO running on your
-Mac first ([Run BOGO on your Mac](daemon.md)).
+takes you from nothing to your first approval.
+
+**If you run `bogo setup`, it does steps 2 and 3 for you**, and its test step
+is your first approval ([install and set up](setup.md)). The rest of this page
+explains what happens, and how to do it by hand.
 
 ## 1. Install the app
 
@@ -14,17 +17,20 @@ request is waiting.
 
 ## 2. Tell your Mac about the iPhone
 
-Add this to `~/.bogo/bogo.toml`:
+A home made by `bogo setup` or `bogo init` already has this section in
+`~/.bogo/bogo.toml`, and `bogo setup` asks for `approve_arm_delay`:
 
 ```toml
 [approvers.iphone]
 app_id = "AX3C2B78YD.com.johansardar.applebridge.ios"
-app_attest = ["production"]
-approve_arm_delay = "1s"
+app_attest = ["production", "development"]
+approve_arm_delay = "2s"
 ```
 
 - `app_id` is the app's App ID. Leave it as shown.
-- `app_attest = ["production"]` accepts the TestFlight and App Store app.
+- `app_attest` lists the App Attest environments BOGO accepts.
+  `"production"` accepts the TestFlight and App Store app; `"development"`
+  accepts builds run from Xcode.
 - `approve_arm_delay` is how long the Review card waits before you can slide.
   BOGO has no default; pick one. A second or two stops a slide you didn't mean.
 
@@ -32,11 +38,12 @@ You don't need an `[apns]` section or a push key. The relay wakes your phone
 when a request is waiting. That push says only "Approval requested": no Mac,
 tool, agent or amount (see [the relay protocol](RELAY-PROTOCOL.md#pushes-from-the-relay)).
 
-Restart the daemon so it reads the file: `bogo stop && bogo start`.
+If you edit the file while BOGO is running, restart it so it reads the file:
+`bogo stop && bogo start`. `bogo doctor` checks this section.
 
 ## 3. Pair them
 
-In a terminal on the Mac:
+In a terminal on the Mac (or let `bogo setup phone` run it):
 
 ```sh
 bogo approver add 'My iPhone'
