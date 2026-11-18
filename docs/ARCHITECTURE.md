@@ -10,7 +10,7 @@ The core's final check runs at the last possible moment. BOGO's own exact upstre
 
 The append-only hash-chained audit log is BOGO's only durable authority. The agent and approver registry, pause epochs and every outcome a phone may still be waiting on are all derived from it. No effect happens, and no reply reaches an agent, before its log entry is durable. Pending requests live only in memory and die with their session, so a crash or restart ends every request, which fails closed. A request that might have been sent when BOGO stopped is reported as "outcome unknown" and is never replayed.
 
-Approvers are plug-in routes behind one trait. The first is the iPhone section: a separate Swift package (`BogoKit`) inside apple-bridge-iphone. It holds a Face ID–bound Secure Enclave P-256 key, proven at registration with App Attest. It talks to BOGO only through HPKE-sealed messages that pass through BOGO's own store-and-forward relay at `bogo.eilmer.si`, and it is woken by APNs pushes that the Mac sends itself. Every message that crosses the relay is safe to apply late, early or twice, and neither end acknowledges one until its effect is durable. A reference Docker sandbox gives the agent a default-deny network namespace whose only route leads to BOGO.
+Approvers are plug-in routes behind one trait. The first is the iPhone section: a separate Swift package (`BogoKit`) inside apple-bridge-iphone. It holds a Face ID–bound Secure Enclave P-256 key, proven at registration with App Attest. It talks to BOGO only through HPKE-sealed messages that pass through BOGO's own store-and-forward relay at `bogo.eilmer.si`, and it is woken by APNs pushes that the relay sends (or the Mac itself, when it has its own `[apns]` key). Every message that crosses the relay is safe to apply late, early or twice, and neither end acknowledges one until its effect is durable. A reference Docker sandbox gives the agent a default-deny network namespace whose only route leads to BOGO.
 
 ## 1. Runtime picture
 
@@ -60,7 +60,7 @@ How the parts talk:
 - **Front to core:** an in-process channel to the core thread. Each step passes one encoded `Input` and gets back the encoded `Output`s.
 - **Exact transport to core:** at the moment of writing a `tools/call`, the transport sends `dispatch` on the same channel and writes only if the answer is `forward`.
 - **Daemon to upstreams:** `rmcp` clients over a child process's stdio (local upstreams) or Streamable HTTP (remote ones), always through BOGO's exact transports.
-- **Daemon and phone:** HPKE-sealed envelopes in each side's relay mailbox, plus an APNs alert that the Mac sends directly.
+- **Daemon and phone:** HPKE-sealed envelopes in each side's relay mailbox, plus an APNs alert that the relay sends when the request arrives (or the Mac sends directly with its own `[apns]`).
 - **CLI to daemon:** JSON lines over a Unix socket that only the owner can open.
 
 ## 2. Units
@@ -510,7 +510,7 @@ pub enum Inbound {
 |---|---|---|
 | Mac (`~/.bogo/keys/`, 0600) | X25519 `macE2E` | HPKE channel; `bogoId = SHA-256(macE2E.pub)` |
 | Mac | Ed25519 `macRelay` | Relay mailbox auth |
-| Mac | the owner's APNs `.p8`, referenced from `secrets.toml` | Pushes |
+| Relay (`/etc/bogo-relay/apns.p8`), or a Mac with `[apns]` (`secrets.toml`) | the owner's APNs `.p8` | Pushes |
 | Phone, per registered Mac | Secure Enclave P-256 `approve` | Approval signatures. `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly` with `[.privateKeyUsage, .biometryCurrentSet]`. Can't be exported; unusable after a Face ID change. |
 | Phone, per registered Mac | X25519 `phoneE2E`, Ed25519 `phoneRelay` | Channel and mailbox; Keychain, `AfterFirstUnlockThisDeviceOnly`, BOGO's own service names. They can't produce approvals. |
 | Phone | App Attest key | Proves the genuine app at registration |
@@ -554,7 +554,7 @@ Envelope := "BOGOE2E" 0x00 | u8 version=1 | u8 direction | u8 type | 16 bytes ms
 
 **Delivery.** For each `ask`, the route does two things concurrently:
 - It puts a `request` envelope in the phone's mailbox, with `msgId = H(reqId‖approverId)[0..16]` so resends are idempotent at the relay.
-- It sends one APNs alert:
+- It sends one APNs alert. Without `[apns]` it asks the relay to, by putting the phone's push token in the envelope's `wake` field; the relay sends the same alert without `category`, `mac` or `rid`, collapsed on the message ID, once per new message and not retried ([relay protocol](RELAY-PROTOCOL.md#pushes-from-the-relay)). With `[apns]` the Mac sends:
 
   ```
   apns-push-type: alert   apns-priority: 10   apns-topic: com.johansardar.applebridge.ios

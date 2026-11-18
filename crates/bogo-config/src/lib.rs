@@ -397,11 +397,6 @@ impl Validator<'_> {
         };
         let apns = f.apns.map(|a| self.apns(a)).transpose()?;
         let iphone = f.approvers.iphone.map(|i| self.iphone(i)).transpose()?;
-        if iphone.is_some() && apns.is_none() && !cfg!(feature = "test-registration") {
-            return Err(err(
-                "[approvers.iphone] needs an [apns] section to wake the phone",
-            ));
-        }
         let mut upstreams = BTreeMap::new();
         for (name, u) in f.upstreams {
             let u = self.upstream(&name, u)?;

@@ -68,15 +68,16 @@ upstreams keep their cached tools discoverable; calls are not sent.
 
 ## Approvers
 
-Configure `[apns]` and `[approvers.iphone]` following the architecture.
+To add your iPhone, follow [Add your iPhone](add-your-iphone.md). It needs
+only `[approvers.iphone]`; the relay wakes the phone, so `[apns]` is optional.
 `approve_arm_delay` has no shipped value. Set it deliberately. The relay needs
 no setting: BOGO uses the free public relay unless `[relay] url` names your own
 ([self-hosting](self-hosting-relay.md)). Retention and mailbox size are the
 relay's own flags; older `[relay]` tables that still set `max_message_age` or
 `mailbox_capacity` load, and those keys are ignored.
 
-Put the APNs key under BOGO's private directory and refer to it with a path
-secret in `secrets.toml`. `BOGO_APP_BUNDLE_VERSIONS` (comma-separated build
+If you do add `[apns]`, put the APNs key under BOGO's private directory and
+refer to it with a path secret in `secrets.toml`. `BOGO_APP_BUNDLE_VERSIONS` (comma-separated build
 numbers) is optional: real App Attest data carries no build number, so it only
 matters if Apple ever includes one. For a private test relay,
 `BOGO_RELAY_CA` names its PEM certificate. `BOGO_MAC_NAME` sets the registration
@@ -92,7 +93,11 @@ bogo approver revoke 'Johan iPhone'
 While `approver add` runs, the Mac shows up in BOGO → Macs → Add Mac on any
 iPhone on the same network. Tap it, check that the terminal and the phone show
 the same 6 digits, answer `y` in the terminal, then confirm on the phone with
-Face ID. A mismatch or a "no" on either side registers nothing. The command,
+Face ID. A mismatch or a "no" on either side registers nothing. A phone on
+another network taps "Mac not listed? Use a code" and scans the QR code the
+command prints, or types the `bogo1-` code under it; the 6 digits are compared
+the same way. If registration fails, the command prints the reason the phone
+gave. The command,
 not the daemon, shows the Mac on the network, so run it from a terminal.
 Reusing a name registers a new key and revokes the old approver. Every completed registration
 and revocation enters the audit log before it affects requests. Registry caches
@@ -111,7 +116,7 @@ bogo soft 'Soft A' FULL_REQUEST_ID --deny --note 'wrong amount'
 `test-approvers` adds the software route and Ed25519 approval verifier; neither
 is in the production daemon's dependency graph. Test seeds stay in
 `secrets.toml`. `test-registration` allows the existing simulator registration
-path without App Attest or APNs credentials; the production build requires both.
+path without App Attest; the production build requires it.
 An arm delay is still required whenever the iPhone route is
 configured. A software route never counts as Face ID or hardware-backed approval.
 

@@ -83,6 +83,27 @@ pub struct Send {
     pub to: String,
     pub msg_id: String,
     pub body: String,
+    /// Ask a relay that sends pushes to wake the recipient's phone once this
+    /// message is stored. A relay without a push key ignores it, as do older
+    /// relays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wake: Option<Wake>,
+}
+/// The phone's push token: the only thing a relay learns besides which
+/// mailbox has something waiting. The push it sends carries nothing else.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Wake {
+    /// The APNs device token, 32 bytes.
+    pub token: String,
+    /// `development` or `production`.
+    pub env: String,
+}
+/// What `GET /healthz` answers.
+#[derive(Serialize, Deserialize)]
+pub struct Health {
+    pub status: String,
+    /// Whether this relay wakes phones itself.
+    pub push: bool,
 }
 #[derive(Serialize, Deserialize)]
 pub struct Fetch {
@@ -224,12 +245,23 @@ impl Client {
     }
     /// Body must be a sealed envelope. Relay never interprets application data.
     pub async fn send(&self, to: &str, id: [u8; 16], envelope: &[u8]) -> Result<(), Error> {
+        self.send_waking(to, id, envelope, None).await
+    }
+    /// [`Client::send`], also asking the relay to wake the recipient's phone.
+    pub async fn send_waking(
+        &self,
+        to: &str,
+        id: [u8; 16],
+        envelope: &[u8],
+        wake: Option<Wake>,
+    ) -> Result<(), Error> {
         self.empty(
             "/v1/send",
             &Send {
                 to: to.into(),
                 msg_id: hex::encode(id),
                 body: hex::encode(envelope),
+                wake,
             },
         )
         .await

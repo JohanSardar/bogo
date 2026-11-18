@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 bogo-relay-proto = { path = "../bogo-relay-proto" }
+bogo-apns = { path = "../bogo-apns" }
 axum = "0.8"
 axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }

@@ -67,8 +67,8 @@ advert, join the room first, or advertise a fake Mac under the same name; all
 of these are caught by the six digits, which the owner must actually compare
 on both screens and confirm on both devices. Numeric comparison is not a
 substitute for doing that check. Someone on the network can also keep the
-owner from pairing by taking the room's one seat first. Push is only a generic wake-up with routing
-IDs, not an approval or the request queue. Transport privacy also rests on
+owner from pairing by taking the room's one seat first. Push is only a generic wake-up (with routing
+IDs when the Mac sends it, with none when the relay does), not an approval or the request queue. Transport privacy also rests on
 crypto/library correctness, separate from the Lean decision theorem.
 
 BOGO stores upstream credentials privately and scrubs known secret values from

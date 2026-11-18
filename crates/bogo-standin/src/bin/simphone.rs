@@ -884,7 +884,8 @@ async fn add(ctx: &Ctx, name: &str) -> Result<(), String> {
         .try_into()
         .map_err(|_| "bad reveal")?;
     if commitment(&e_pub_m, &e_pub_p, &n_m) != commit {
-        seat.send(PHASE_PHONE_ABORT, &[]).await?;
+        let why = br#"{"why":"the Mac's reveal does not match its commitment"}"#;
+        seat.send(PHASE_PHONE_ABORT, why).await?;
         return Err("the Mac's reveal does not match its commitment: aborted".into());
     }
     let shared = e_p.diffie_hellman(&x25519_dalek::PublicKey::from(e_pub_m));
@@ -926,7 +927,8 @@ async fn add(ctx: &Ctx, name: &str) -> Result<(), String> {
     )
     .await
     {
-        seat.send(PHASE_PHONE_ABORT, &[]).await?;
+        seat.send(PHASE_PHONE_ABORT, br#"{"cancelled":true}"#)
+            .await?;
         return Err("cancelled on the phone".into());
     }
     let app = ctx.phone.lock().await.app.clone();

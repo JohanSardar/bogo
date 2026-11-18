@@ -3,6 +3,7 @@ Description=BOGO ciphertext relay
 Wants=network-online.target
 After=network-online.target
 ConditionPathExists=/etc/bogo-relay/tls/bogo.eilmer.si.crt
+ConditionPathExists=/etc/bogo-relay/apns.p8
 
 [Service]
 User=bogo-relay
@@ -10,7 +11,8 @@ Group=bogo-relay
 StateDirectory=bogo-relay
 StateDirectoryMode=0700
 UMask=0077
-ExecStart=/opt/bogo-relay/bin/bogo-relay --listen 0.0.0.0:8443 --service bogo.eilmer.si:8443 --database /var/lib/bogo-relay/relay.sqlite --cert /etc/bogo-relay/tls/bogo.eilmer.si.crt --key /etc/bogo-relay/tls/bogo.eilmer.si.key --max-message-age 2592000 --mailbox-capacity 1000
+LoadCredential=apns.p8:/etc/bogo-relay/apns.p8
+ExecStart=/opt/bogo-relay/bin/bogo-relay --listen 0.0.0.0:8443 --service bogo.eilmer.si:8443 --database /var/lib/bogo-relay/relay.sqlite --cert /etc/bogo-relay/tls/bogo.eilmer.si.crt --key /etc/bogo-relay/tls/bogo.eilmer.si.key --max-message-age 2592000 --mailbox-capacity 1000 --apns-key ${CREDENTIALS_DIRECTORY}/apns.p8 --apns-key-id L2854KRF5Z --apns-team-id AX3C2B78YD
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5s

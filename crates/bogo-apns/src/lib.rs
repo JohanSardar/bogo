@@ -44,6 +44,8 @@ pub struct Client {
     team_id: String,
     topic: String,
     cached: Option<(u64, String)>,
+    /// A stand-in for Apple's push service, for tests only.
+    stand_in: Option<String>,
 }
 #[derive(Serialize)]
 struct Claims<'a> {
@@ -67,21 +69,32 @@ impl Client {
         use zeroize::Zeroize;
         pem.zeroize();
         let key = result?;
-        let http = reqwest::Client::builder()
-            .https_only(true)
-            .http2_prior_knowledge()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(Duration::from_secs(30))
-            .build()
-            .map_err(|_| Error::Transport)?;
         Ok(Self {
-            http,
+            http: http(None)?,
             key,
             key_id: key_id.into(),
             team_id: team_id.into(),
             topic: topic.into(),
             cached: None,
+            stand_in: None,
         })
+    }
+    /// Send to a stand-in for Apple's push service at `base` (`https://host:port`)
+    /// instead of Apple, trusting `root_pem` as well. For tests on one machine.
+    pub fn stand_in(mut self, base: &str, root_pem: Option<&[u8]>) -> Result<Self, Error> {
+        if !base.starts_with("https://") {
+            return Err(Error::Config);
+        }
+        let root = root_pem
+            .map(reqwest::Certificate::from_pem)
+            .transpose()
+            .map_err(|_| Error::Config)?;
+        self.http = http(root)?;
+        self.stand_in = Some(base.trim_end_matches('/').into());
+        Ok(self)
+    }
+    fn host(&self, environment: Environment) -> &str {
+        self.stand_in.as_deref().unwrap_or(environment.host())
     }
     fn token(&mut self) -> Result<&str, Error> {
         let now = SystemTime::now()
@@ -117,9 +130,7 @@ impl Client {
         mac_prefix: &str,
         req_id: &str,
     ) -> Result<Response, Error> {
-        if device_token.len() != 64
-            || !device_token.bytes().all(|c| c.is_ascii_hexdigit())
-            || mac_prefix.len() > 64
+        if mac_prefix.len() > 64
             || mac_prefix.is_empty()
             || !mac_prefix.bytes().all(|c| c.is_ascii_hexdigit())
             || req_id.len() != 80
@@ -127,23 +138,53 @@ impl Client {
         {
             return Err(Error::Config);
         }
-        let token = self.token()?.to_owned();
         let payload = serde_json::json!({"aps":{"alert":{"title":"BOGO","body":"Approval requested"},
             "interruption-level":"time-sensitive","category":"bogo.request","thread-id":"bogo","content-available":1,"sound":"default"},
             "bogo":{"v":1,"mac":mac_prefix,"rid":req_id}});
+        let collapse = format!("{:x}", Sha256::digest(req_id.as_bytes()));
+        self.post(environment, device_token, &payload, &collapse)
+            .await
+    }
+    /// A wake-up that says only that something is waiting: no Mac, request,
+    /// tool, agent or amount. A relay sends this one; it never sees what is
+    /// waiting. `collapse` is any opaque value that is the same for a resend.
+    pub async fn nudge(
+        &mut self,
+        environment: Environment,
+        device_token: &str,
+        collapse: &str,
+    ) -> Result<Response, Error> {
+        let payload = serde_json::json!({"aps":{"alert":{"title":"BOGO","body":"Approval requested"},
+            "interruption-level":"time-sensitive","thread-id":"bogo","content-available":1,"sound":"default"},
+            "bogo":{"v":1}});
+        let collapse = format!("{:x}", Sha256::digest(collapse.as_bytes()));
+        self.post(environment, device_token, &payload, &collapse)
+            .await
+    }
+    async fn post(
+        &mut self,
+        environment: Environment,
+        device_token: &str,
+        payload: &serde_json::Value,
+        collapse: &str,
+    ) -> Result<Response, Error> {
+        if device_token.len() != 64 || !device_token.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return Err(Error::Config);
+        }
+        let token = self.token()?.to_owned();
         let response = self
             .http
-            .post(format!("{}/3/device/{device_token}", environment.host()))
+            .post(format!(
+                "{}/3/device/{device_token}",
+                self.host(environment)
+            ))
             .bearer_auth(token)
             .header("apns-topic", &self.topic)
             .header("apns-push-type", "alert")
             .header("apns-priority", "10")
             .header("apns-expiration", "0")
-            .header(
-                "apns-collapse-id",
-                format!("{:x}", Sha256::digest(req_id.as_bytes())),
-            )
-            .json(&payload)
+            .header("apns-collapse-id", collapse)
+            .json(payload)
             .send()
             .await
             .map_err(|_| Error::Transport)?;
@@ -176,4 +217,15 @@ impl Client {
             apns_id,
         })
     }
+}
+fn http(root: Option<reqwest::Certificate>) -> Result<reqwest::Client, Error> {
+    let mut b = reqwest::Client::builder()
+        .https_only(true)
+        .http2_prior_knowledge()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(30));
+    if let Some(root) = root {
+        b = b.add_root_certificate(root);
+    }
+    b.build().map_err(|_| Error::Transport)
 }

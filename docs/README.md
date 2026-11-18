@@ -8,6 +8,8 @@ defined in the [glossary](../GLOSSARY.md).
 
 - [Quick start](../README.md#quick-start-on-macos): try BOGO on your Mac with a
   software test approver, no iPhone needed.
+- [Add your iPhone](add-your-iphone.md): install the app, pair it with your
+  Mac on the same network or with a code, and approve your first call.
 - [Connect an agent](agents.md): MCP configs for Claude Code and other clients.
 - [Configuration](configuration.md): every `bogo.toml` key, tool policies,
   per-action and per-agent rules, and the iPhone settings.
