@@ -1,5 +1,6 @@
-//! Registration on the Mac: a Bonjour advert the phone lists, the sealed
-//! relay room its pairing code names, numeric comparison on both screens,
+//! Registration on the Mac: a Bonjour advert the phone lists (or the same
+//! pairing code, scanned or typed off the Mac's network), the sealed relay
+//! room its pairing code names, numeric comparison on both screens,
 //! then proof of possession and App Attest (ARCHITECTURE §3.11). Nothing
 //! becomes trusted here; the hub commits only what [`MacRegistration`] hands
 //! it.
@@ -85,7 +86,7 @@ impl Room<'_> {
                     continue;
                 }
                 if phase == PHASE_PHONE_ABORT {
-                    return Err(RegError::Aborted("the phone cancelled".into()));
+                    return Err(RegError::Aborted(PhoneAbort::reason(&payload)));
                 }
                 if phase == want {
                     self.peer.get_or_insert(m.from.clone());
@@ -206,10 +207,13 @@ pub(crate) async fn run(
         .await;
     owner
         .status(&format!(
-            "On your iPhone, open BOGO → Macs → Add Mac and tap \"{}\". Keep the iPhone on this Mac's network.",
+            "On your iPhone, open BOGO → Macs → Add Mac and tap \"{}\".",
             route.cfg.mac_name
         ))
         .await;
+    // Off the Mac's network the phone can't see the advert: the owner scans or
+    // types the same code instead. The digits still decide.
+    owner.show_code(&code.text()).await;
     let result = exchange(&mut seat, e_m, e_pub_m, name, owner).await;
     owner.advertise(None).await;
     match result {

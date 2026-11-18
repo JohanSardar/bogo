@@ -189,6 +189,9 @@ pub trait OwnerPrompt: Send + Sync {
     /// Show this Mac to approvers nearby while it waits for one (`Some`), or
     /// stop (`None`). Prompts with no local network ignore it.
     async fn advertise(&self, _nearby: Option<&Nearby>) {}
+    /// Show the pairing code, for an approver that can't see this Mac nearby
+    /// to scan or type. Prompts that can't show it ignore it.
+    async fn show_code(&self, _code: &str) {}
 }
 
 /// What a waiting Mac shows on the local network, so a nearby approver can

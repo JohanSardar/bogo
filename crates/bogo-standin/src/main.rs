@@ -564,6 +564,9 @@ impl OwnerPrompt for Terminal {
         println!("  owner answered: {answer:?}");
         matches!(answer.trim(), "y" | "Y" | "yes")
     }
+    async fn show_code(&self, code: &str) {
+        println!("  Off this network, use the code: {code}");
+    }
     async fn advertise(&self, n: Option<&bogo_approver::Nearby>) {
         let mut advert = self.advert.lock().await;
         *advert = None;

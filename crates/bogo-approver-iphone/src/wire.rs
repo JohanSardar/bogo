@@ -318,7 +318,7 @@ pub const PHASE_REG_SUBMIT: u8 = 0x06; // phone, sealed RegSubmit
 pub const PHASE_REGISTERED: u8 = 0x07; // Mac, sealed Registered
 pub const PHASE_REFUSED: u8 = 0x08; // Mac, sealed Refused
 pub const PHASE_MAC_ABORT: u8 = 0x09; // Mac, empty
-pub const PHASE_PHONE_ABORT: u8 = 0x0a; // phone, empty
+pub const PHASE_PHONE_ABORT: u8 = 0x0a; // phone: empty, or PhoneAbort
 pub const PHASE_MAC_OFFER: u8 = 0x0b; // Mac: ePubM (32)
 
 /// The proof-of-possession domain: the approval key signs
@@ -490,6 +490,40 @@ pub struct RegisteredPhase {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RefusedPhase {
     pub why: String,
+}
+
+/// Why the phone stopped ([`PHASE_PHONE_ABORT`]). Older phones send an empty
+/// payload, which says nothing about why.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct PhoneAbort {
+    /// The owner cancelled on the phone.
+    #[serde(default)]
+    pub cancelled: bool,
+    /// What went wrong on the phone, in words, such as "it couldn't save its
+    /// keys (Keychain error -34018)".
+    #[serde(default)]
+    pub why: Option<String>,
+}
+
+impl PhoneAbort {
+    /// What the Mac reports. The text comes from whoever holds the pairing
+    /// code, so it is shortened and kept to printable characters.
+    pub fn reason(payload: &[u8]) -> String {
+        let abort: Option<PhoneAbort> = serde_json::from_slice(payload).ok();
+        match abort {
+            Some(PhoneAbort {
+                cancelled: true, ..
+            }) => "the phone cancelled".into(),
+            Some(PhoneAbort { why: Some(why), .. }) => {
+                let mut why: String = why.chars().filter(|c| !c.is_control()).take(160).collect();
+                if why.trim().is_empty() {
+                    why = "it gave no reason".into();
+                }
+                format!("the iPhone couldn't finish: {}", why.trim())
+            }
+            _ => "the iPhone stopped without saying why; see the phone".into(),
+        }
+    }
 }
 
 /// Route data stored with each iPhone approver (`ApproverRecord::route`).
