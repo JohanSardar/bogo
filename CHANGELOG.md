@@ -10,6 +10,10 @@ Changes to the BOGO tab of the iPhone app are listed in the
 
 ### Added
 
+- One-line install for Apple Silicon Macs:
+  `curl -fsSL https://bogo.eilmer.si/install.sh | sh`, from GitHub releases
+  that CI builds when a version tag is pushed ([release rule](docs/release.md)).
+- `bogo --version` prints the commit it was built from.
 - Front page, [docs index](docs/README.md), [FAQ](docs/faq.md),
   [agent setup](docs/agents.md), [what is verified](docs/status.md),
   security policy, contributing guide and issue and pull request templates.
