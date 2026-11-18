@@ -25,7 +25,7 @@ admit testers yet.
   7ee1e72b3f92)` with no Gatekeeper prompt, and the release build refuses the
   software test approver. A corrupted download installs nothing.
   Records: [install pull request](https://github.com/JohanSardar/bogo/pull/12),
-  and the run for [this page's update](https://github.com/JohanSardar/bogo/pulls?q=is%3Apr+T36).
+  and the [0.1.0 install run](https://github.com/JohanSardar/bogo/pull/15).
 - **`bogo setup` and `bogo doctor`, with a software test approver.** In a
   scratch home, with its own LaunchAgent name, setup created the home, started
   BOGO in the background, added the software test approver in place of the
@@ -33,8 +33,9 @@ admit testers yet.
   the protected test call, which waited until it was approved. `bogo doctor`
   then reported every check ok. `bogo setup --undo` restored the client file
   byte for byte. Through the client's new `bogo` entry, reads ran and a write
-  waited for approval.
-  Record: [setup pull request](https://github.com/JohanSardar/bogo/pull/14).
+  waited for approval. The same run was repeated at 0.1.0.
+  Records: [setup pull request](https://github.com/JohanSardar/bogo/pull/14),
+  [0.1.0 run](https://github.com/JohanSardar/bogo/pull/15).
 - **The Gmail and files recipes, without a Google account.** Each installed
   its pinned server, listed its tools and wrote its policy. Through BOGO, a
   Gmail search ran without approval and a send waited and was denied.
