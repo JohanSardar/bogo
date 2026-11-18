@@ -167,3 +167,25 @@ for line in sys.stdin:
         "setup wrote allow without receiving any owner confirmation"
     );
 }
+
+#[test]
+fn setup_does_not_import_a_project_bogo_connection_as_an_upstream() {
+    let s = Scratch::new();
+    s.put_client(".claude.json", json!({"mcpServers": {}}));
+    s.cli(&["setup", "agent", "--yes"]);
+    let doc = s.read_client(".claude.json");
+    // Claude Code's local scope stores an MCP connection under its project.
+    // Use a working BOGO connection with an active token, not a malformed entry.
+    s.put_client(
+        ".claude.json",
+        json!({"projects": {"/tmp/review-project": {
+            "mcpServers": {"bogo": doc["mcpServers"]["bogo"]}
+        }}}),
+    );
+    s.cli(&["setup", "agent", "--yes"]);
+    let config = std::fs::read_to_string(s.0.join("home/bogo.toml")).unwrap();
+    assert!(
+        !config.contains("[upstreams.bogo-upstream]"),
+        "setup imported the project's own BOGO connection as an upstream back to itself"
+    );
+}

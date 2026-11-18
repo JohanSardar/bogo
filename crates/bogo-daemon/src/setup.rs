@@ -984,15 +984,16 @@ async fn agent(root: &Path, ask: &Ask, o: &Options) -> Result<()> {
             }
         }
         // (project folder or None for the client's own list, key, entry)
-        let others: Vec<(Option<&str>, &String, &Ordered)> =
-            servers
-                .iter()
-                .filter(|(k, _)| k != "bogo")
-                .map(|(k, v)| (None, k, v))
-                .chain(project_servers.iter().flat_map(|(folder, s)| {
-                    s.iter().map(move |(k, v)| (Some(folder.as_str()), k, v))
-                }))
-                .collect();
+        let others: Vec<(Option<&str>, &String, &Ordered)> = servers
+            .iter()
+            .filter(|(k, _)| k != "bogo")
+            .map(|(k, v)| (None, k, v))
+            .chain(project_servers.iter().flat_map(|(folder, s)| {
+                s.iter()
+                    .filter(|(k, _)| k != "bogo")
+                    .map(move |(k, v)| (Some(folder.as_str()), k, v))
+            }))
+            .collect();
         // A bogo entry that no longer reaches BOGO (moved shim, other port, revoked agent)
         // is replaced, as `bogo doctor` tells the owner to do.
         let reg = registry(root)?;
