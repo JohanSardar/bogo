@@ -1091,6 +1091,18 @@ async fn agent(root: &Path, ask: &Ask, o: &Options) -> Result<()> {
                         break;
                     }
                     let (suggested, why) = suggest(tool);
+                    // --yes never opens a tool: allow needs the owner to say it.
+                    if ask.yes && suggested == "allow" {
+                        println!(
+                            "    {name}: {why}. Left at approve: --yes never allows a tool; run `bogo setup agent` to choose."
+                        );
+                        policy.push_str(&format!(
+                            "[tools.{}]\npolicy = {}\n",
+                            k(name),
+                            q("approve")
+                        ));
+                        continue;
+                    }
                     let chosen = loop {
                         let a = ask.line(
                             &format!("    {name}: {why}. allow, approve or deny?"),
@@ -1101,11 +1113,8 @@ async fn agent(root: &Path, ask: &Ask, o: &Options) -> Result<()> {
                             _ => println!("    Answer allow, approve or deny."),
                         }
                     };
-                    // --yes never opens a tool: allow needs the owner to say it.
+                    // --yes never opens a tool, whatever answer it took.
                     let chosen = if ask.yes && chosen == "allow" {
-                        println!(
-                            "    Left at approve: --yes never allows a tool. Run `bogo setup agent` to choose."
-                        );
                         "approve".to_owned()
                     } else {
                         chosen
