@@ -4,7 +4,7 @@
 Make BOGO's Mac side installable with one command and nothing to build. Today the only way is from source, which needs Rust, Lean, Node and Python, and the projects we compare with install in one step. Happy uses `npm i -g`, ntfy and Secretive use `brew install`, and many CLI tools use `curl … | sh`. On 2026-11-17 the owner chose a curl script, with no Homebrew, npm or Docker. This ticket replaces T32.
 
 ```sh
-curl -fsSL https://bogo.eilmer.si/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh | sh
 ```
 
 When this is done, each of these is true on its own:
@@ -21,7 +21,7 @@ When this is done, each of these is true on its own:
   - Find out and show whether a binary downloaded by curl runs without a Gatekeeper prompt. curl doesn't add the quarantine flag that browsers add.
   - Find out whether Apple Silicon's required ad-hoc signature is present.
   - If something does need signing, say so in the PR and stop there. Don't add the owner's Developer ID or any key to CI; that is the owner's decision.
-- **`bogo.eilmer.si/install.sh` forwards to GitHub's raw `install.sh` on `main`** with an HTTP redirect, so the script and binaries live only on GitHub. T35 adds the route to the relay and the coordinator deploys it. Your script and docs use the short URL, and the docs also show the GitHub URL.
+- **The relay’s `/install.sh` route forwards to GitHub’s raw `install.sh` on `main`** with an HTTP redirect, so the script and binaries live only on GitHub. T35 adds the route to the relay and the coordinator deploys it. The install command uses GitHub directly. The optional relay shortcut is described in [setup](../../setup.md#install).
 - **A written release rule** says how versions are chosen and how to cut a release, matching the iPhone repo's rule in its `ios/README.md`.
 - **`bogo --version`** prints the version and the commit it was built from.
 

@@ -20,7 +20,7 @@ admit testers yet.
   [daemon and CLI](internal/verification/daemon-cli.md),
   [MCP front and shim](internal/verification/front-shim.md).
 - **The one-line install.** Release 0.1.0 was built by CI and published on
-  GitHub. `curl -fsSL https://bogo.eilmer.si:8443/install.sh | sh`, run with a
+  GitHub. `curl -fsSL https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh | sh`, run with a
   scratch home and install folder, installed `bogo 0.1.0 (commit
   7ee1e72b3f92)` with no Gatekeeper prompt, and the release build refuses the
   software test approver. A corrupted download installs nothing.

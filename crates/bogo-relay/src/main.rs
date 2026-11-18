@@ -397,8 +397,8 @@ async fn healthz(State(app): State<Shared>) -> Json<Health> {
 async fn front() -> &'static str {
     "BOGO relay. It passes sealed messages between a Mac and a phone. https://github.com/JohanSardar/bogo\n"
 }
-/// `curl -fsSL https://<relay>/install.sh | sh` installs BOGO: the script
-/// itself is the one in the repository, never served or changed here.
+/// Optional install redirect. Whoever controls the relay controls its destination.
+/// Install directly from GitHub; see docs/setup.md.
 async fn install() -> Redirect {
     Redirect::temporary("https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh")
 }

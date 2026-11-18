@@ -71,6 +71,14 @@ owner from pairing by taking the room's one seat first. Push is only a generic w
 IDs when the Mac sends it, with none when the relay does), not an approval or the request queue. Transport privacy also rests on
 crypto/library correctness, separate from the Lean decision theorem.
 
+The public relay now holds the app publisher's APNs push key. Whoever
+compromises the relay host can send generic "Approval requested" pushes to
+any of the app's users and can redirect `/install.sh`. It still cannot read
+requests or produce an approval. Approvals are Secure Enclave signatures the
+Mac verifies, and the app shows only requests that decrypt from the user's
+own Mac. The relay shares its VM with an unrelated website. No independent
+human security audit has been done.
+
 BOGO stores upstream credentials privately and scrubs known secret values from
 upstream traffic. Per-tool result filters can strip/redact fields that might
 give an agent a bypass capability; unfilterable text is withheld when filtering

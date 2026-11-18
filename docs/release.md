@@ -49,7 +49,7 @@ example `bogo 0.1.0 (commit 1a2b3c4d5e6f)`. A source build prints the
    on a Mac:
 
    ```sh
-   curl -fsSL https://bogo.eilmer.si:8443/install.sh | sh
+   curl -fsSL https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh | sh
    bogo --version
    ```
 
@@ -75,8 +75,7 @@ flag:
 xattr -d com.apple.quarantine ~/.local/bin/bogo ~/.local/bin/bogo-shim
 ```
 
-## The short install URL
+## Install source
 
-`https://bogo.eilmer.si:8443/install.sh` is an HTTP redirect to
-`https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh`, served by
-the relay. The script and the binaries live only on GitHub.
+Use the GitHub URL above. The [optional shortcut](setup.md#install) goes
+through BOGO's relay, whose operator controls its destination.

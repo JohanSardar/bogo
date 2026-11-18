@@ -23,6 +23,12 @@ Changes to the BOGO tab of the iPhone app are listed in the
 
 ### Changed
 
+- Install commands use GitHub directly. The relay shortcut is optional;
+  [setup](docs/setup.md#install) explains who controls its destination.
+- The [threat model](docs/threat-model.md) explains the relay's push key,
+  shared VM and compromise risks. No independent human security audit has
+  been done.
+
 - The build-from-source quick start moved to
   [Build from source and try it](docs/build-from-source.md).
 - Internal records (tickets, design rounds, verification records, research)
@@ -51,7 +57,7 @@ Changes to the BOGO tab of the iPhone app are listed in the
 - `bogo-shim` reads its token from `BOGO_AGENT_TOKEN_FILE` as well.
 
 - One-line install for Apple Silicon Macs:
-  `curl -fsSL https://bogo.eilmer.si:8443/install.sh | sh`, from GitHub releases
+  `curl -fsSL https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh | sh`, from GitHub releases
   that CI builds when a version tag is pushed ([release rule](docs/release.md)).
 - `bogo --version` prints the commit it was built from.
 - The relay wakes your phone, so a Mac needs no `[apns]` section or push key.

@@ -4,7 +4,7 @@
 This ticket covers everything about the phone and the Mac finding each other, so that anyone who installs BOGO can use it with an iPhone. It combines two earlier tickets and adds one small relay route:
 - **T31's goal:** the relay sends pushes, pairing works off the Mac's network, real failure messages, the relay health check, the "Add your iPhone" guide, and ADR 0003. Read `docs/tickets/T31-relay-push-and-off-network-pairing.md`; its Goal, Context, Constraints, Guardrails and How to verify all apply here.
 - **T30's goal:** an unsigned `make simulator` build pairs with a real Mac, and the builds print no warnings. Read `docs/tickets/T30-iphone-round-two.md`; all of it applies here.
-- **An install redirect.** The relay answers `GET /install.sh` with a redirect to `https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh`, so `curl -fsSL https://bogo.eilmer.si/install.sh | sh` works once deployed. It serves no script itself, and it doesn't log the request beyond what the relay logs today.
+- **An install redirect.** The relay answers `GET /install.sh` with a redirect to `https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh`. Install directly with `curl -fsSL https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh | sh`; this command does not depend on the relay. It serves no script itself, and it doesn't log the request beyond what the relay logs today.
 
 ## Context
 - The repos are `/Users/johansardar/.t3/projects/bogo` and `/Users/johansardar/apple-bridge-iphone`. Make your own worktree and branch from `main` in each, and don't use the iPhone repo's main checkout.
