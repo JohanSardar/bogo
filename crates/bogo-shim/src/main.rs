@@ -182,10 +182,26 @@ async fn restore_handshake(
     Ok(())
 }
 
+/// The agent token: `BOGO_AGENT_TOKEN`, or the first line of the private file named by
+/// `BOGO_AGENT_TOKEN_FILE` (what `bogo setup` writes, so the token is in no client config).
+fn token() -> Result<String, String> {
+    if let Ok(token) = env::var("BOGO_AGENT_TOKEN") {
+        return Ok(token);
+    }
+    let path = env::var_os("BOGO_AGENT_TOKEN_FILE")
+        .ok_or("BOGO_AGENT_TOKEN or BOGO_AGENT_TOKEN_FILE is required")?;
+    let text = std::fs::read_to_string(&path)
+        .map_err(|_| "cannot read the file BOGO_AGENT_TOKEN_FILE names")?;
+    let token = text.lines().next().unwrap_or_default().trim();
+    if token.is_empty() {
+        return Err("the file BOGO_AGENT_TOKEN_FILE names is empty".into());
+    }
+    Ok(token.to_owned())
+}
 async fn run() -> Result<(), String> {
     let url = env::var("BOGO_URL").map_err(|_| "BOGO_URL is required")?;
     let url = url.trim_end_matches('/').to_owned();
-    let token = env::var("BOGO_AGENT_TOKEN").map_err(|_| "BOGO_AGENT_TOKEN is required")?;
+    let token = token()?;
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()

@@ -218,6 +218,7 @@ impl IphoneRoute {
                     hold(&self.dead_tokens).insert(push.token.0.clone());
                 }
                 tracing::warn!(
+                    target: "bogo::trace",
                     "APNs refused the wake-up: {} {:?}{}",
                     r.status,
                     r.reason,
@@ -228,7 +229,7 @@ impl IphoneRoute {
                     }
                 );
             }
-            Err(e) => tracing::warn!("APNs: {e}"),
+            Err(e) => tracing::warn!(target: "bogo::trace", "APNs wake-up failed: {e}"),
         }
     }
 
@@ -322,7 +323,9 @@ impl ApproverRoute for IphoneRoute {
         let mut channels = HashMap::new();
         let mut by_mailbox = HashMap::new();
         for a in all {
-            let route: RouteData = serde_json::from_value(a.route.clone()).map_err(err)?;
+            // Fixed text: a serde error can quote the stored route, and this reaches the trace.
+            let route: RouteData = serde_json::from_value(a.route.clone())
+                .map_err(|_| err("the stored iPhone route is invalid"))?;
             let phone_e2e = bogo_e2e::public_from(&route.phone_e2e.0).map_err(err)?;
             by_mailbox.insert(route.mailbox.clone(), a.id);
             channels.insert(
@@ -454,7 +457,11 @@ impl ApproverRoute for IphoneRoute {
                     b
                 }
                 Err(e) => {
-                    tracing::warn!("relay fetch: {e}");
+                    tracing::warn!(
+                        target: "bogo::trace",
+                        "relay fetch failed: {e}; retrying in {}s",
+                        backoff.as_secs_f32()
+                    );
                     tokio::time::sleep(backoff).await;
                     backoff = (backoff * 2).min(Duration::from_secs(30));
                     continue;
@@ -490,7 +497,7 @@ impl ApproverRoute for IphoneRoute {
                     });
                 let Some((id, ch, o)) = opened else {
                     // Unauthenticated or from nobody we know: no effect, drop it.
-                    tracing::warn!("dropped an envelope that failed to open");
+                    tracing::warn!(target: "bogo::trace", "dropped a relay message that failed to open");
                     self.ack(&m.msg_id).await;
                     continue;
                 };

@@ -420,6 +420,7 @@ dependencies = [
  "bogo-front",
  "bogo-json",
  "bogo-log",
+ "bogo-relay-proto",
  "bogo-state",
  "bogo-upstream",
  "bogo-verify",
@@ -427,6 +428,7 @@ dependencies = [
  "hex",
  "nix",
  "rand 0.8.8",
+ "reqwest 0.12.28",
  "rmcp",
  "serde",
  "serde_json",
@@ -434,6 +436,8 @@ dependencies = [
  "tokio",
  "toml",
  "tower-http",
+ "tracing",
+ "tracing-subscriber",
  "url",
 ]
 

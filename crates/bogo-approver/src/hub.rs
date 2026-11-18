@@ -91,7 +91,7 @@ impl Hub {
                 .collect();
             let mut backoff = Duration::from_millis(500);
             while let Err(e) = route.set_approvers(&mine).await {
-                tracing::warn!("{}: registry not applied yet: {e}", route.kind());
+                tracing::warn!(target: "bogo::trace", "{} approvers not sent to the relay yet: {e}", route.kind());
                 tokio::time::sleep(backoff).await;
                 backoff = (backoff * 2).min(MAX_BACKOFF);
             }
@@ -147,7 +147,12 @@ impl Hub {
                     RESEND
                 }
                 Err(e) => {
-                    tracing::warn!("deliver {} to {}: {e}", short(&out.req), a.name);
+                    tracing::warn!(
+                        target: "bogo::trace",
+                        "request {} not delivered to {}: {e}",
+                        short(&out.req),
+                        a.name
+                    );
                     let wait = backoff;
                     backoff = (backoff * 2).min(MAX_BACKOFF);
                     wait
@@ -431,7 +436,7 @@ where
         match f().await {
             Ok(()) => return,
             Err(e) => {
-                tracing::warn!("{what} to {}: {e}", a.name);
+                tracing::warn!(target: "bogo::trace", "sending the {what} notice to {} failed: {e}", a.name);
                 if tokio::time::Instant::now() > deadline {
                     return;
                 }

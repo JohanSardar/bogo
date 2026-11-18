@@ -306,7 +306,7 @@ def reqCases : List ReqCase := [
       session := sessionId "session-research-1",
       hints := [([.key "amount"], .moneyMinor "EUR"), ([.key "currency"], .text)] }⟩,
   ⟨"filesystem-write", "the filesystem upstream: a write with multi-line content",
-    some "{\"path\":\"/Users/johansardar/bogo-test/notes.md\",\"content\":\"# Trip\\n\\n- LJU → SFO\\n- \\\"6pm\\\"\\tflight\\n\"}",
+    some "{\"path\":\"/tmp/bogo-example/notes.md\",\"content\":\"# Trip\\n\\n- LJU → SFO\\n- \\\"6pm\\\"\\tflight\\n\"}",
     filesWrite⟩,
   ⟨"display-roles", "Link spend request with signed card roles",
     some "{\"name\":\"spend-request_create\",\"arguments\":{\"lineItem\":[{\"name\":\"Trip to SFO\",\"image_url\":\"https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=800\"}],\"merchantName\":\"Example Travel\",\"amount\":4700,\"context\":\"Flight reservation\",\"test\":true}}",
