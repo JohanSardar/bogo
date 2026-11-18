@@ -84,10 +84,9 @@ pub async fn doctor(root: &Path, client_home: Option<&Path>) -> Result<()> {
         .count();
     match (phones, approvers.len()) {
         (0, 0) => r.fail("no phone is paired", "run `bogo setup phone`"),
-        (0, n) => r.fail(
-            &format!("no iPhone is paired ({n} test approver(s) only, which never use Face ID)"),
-            "run `bogo setup phone`",
-        ),
+        (0, n) => r.note(&format!(
+            "{n} software test approver(s) and no iPhone: test approvers never use Face ID, so never protect real actions with them; `bogo setup phone` adds your iPhone"
+        )),
         (n, _) => r.ok(&format!("{n} iPhone(s) paired")),
     }
 

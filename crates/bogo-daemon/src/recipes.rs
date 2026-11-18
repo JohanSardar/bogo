@@ -96,6 +96,8 @@ const RECIPES: &[Recipe] = &[
                 },
             ),
             ("WORKSPACE_MCP_CREDENTIALS_DIR", Value::Folder),
+            // Its logs and caches go to its own folder, not the account's home.
+            ("HOME", Value::Folder),
         ],
         folder: false,
         allow: &[
@@ -501,11 +503,14 @@ pub async fn add_recipe(root: &Path, name: &str, yes: bool) -> Result<()> {
                         .map_err(error)?;
                 }
                 let secret = format!("{}_folder", r.name);
-                secrets.push_str(&format!(
+                let line = format!(
                     "{} = {{ path = {} }}\n",
                     k(&secret),
                     q(&dir.to_string_lossy())
-                ));
+                );
+                if !secrets.contains(&line) {
+                    secrets.push_str(&line);
+                }
                 items.push(format!("{} = {{ secret = {} }}", k(key), q(&secret)));
             }
         }

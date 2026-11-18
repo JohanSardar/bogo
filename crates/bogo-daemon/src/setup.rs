@@ -67,6 +67,10 @@ impl Ask {
         std::io::stdout().flush().map_err(error)?;
         let mut s = String::new();
         std::io::stdin().lock().read_line(&mut s).map_err(error)?;
+        if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            // Answers from a script: show them, so the transcript reads like a session.
+            println!("{}", s.trim());
+        }
         let s = s.trim();
         Ok(if s.is_empty() { suggested } else { s }.into())
     }
@@ -310,10 +314,7 @@ fn replace_key(text: &str, header: &str, key: &str, value: &str) -> Result<Strin
         if t.starts_with('[') {
             section = t.to_owned();
         }
-        if !done
-            && section == header
-            && t.split_once('=').is_some_and(|(k, _)| k.trim() == key)
-        {
+        if !done && section == header && t.split_once('=').is_some_and(|(k, _)| k.trim() == key) {
             out.push(format!("{key} = {value}"));
             done = true;
         } else {
@@ -418,6 +419,15 @@ pub(crate) async fn with_stopped<T>(root: &Path, f: impl FnOnce() -> Result<T>) 
     println!("  Restarting BOGO to load the new config.");
     owner::launch(root, false)?;
     wait_for(root, false, 30).await?;
+    // The socket goes before the process does: wait until its writer lock is free too.
+    let home = bogo_state::Home::open(root).map_err(error)?;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while let Err(bogo_state::StateError::Locked(_)) = home.lock() {
+        if tokio::time::Instant::now() > deadline {
+            return Err("BOGO did not stop within 30s".into());
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
     let result = f();
     owner::launch(root, true)?;
     wait_for(root, true, 120).await?;
@@ -679,6 +689,29 @@ fn found(
     })
 }
 
+/// The upstream already configured for this client entry, if any.
+fn existing(config: &bogo_config::Config, v: &Value) -> Option<String> {
+    let args: Vec<String> = v["args"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| s.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    let command = v["command"].as_str().and_then(resolve);
+    config.upstreams.iter().find_map(|(name, u)| {
+        let same = match u {
+            bogo_config::Upstream::Local {
+                command: c,
+                args: a,
+                ..
+            } => command.as_deref() == Some(c.as_str()) && *a == args,
+            bogo_config::Upstream::Remote { url, .. } => v["url"].as_str() == Some(url.as_str()),
+        };
+        same.then(|| name.clone())
+    })
+}
 /// The policy setup suggests for one tool, from the annotations its server publishes.
 /// Only `readOnlyHint` suggests allow; a write, a send or no hint at all suggests approve.
 pub(crate) fn suggest(tool: &Value) -> (&'static str, &'static str) {
@@ -834,7 +867,7 @@ pub(crate) fn token_path(root: &Path, agent: &str) -> PathBuf {
 }
 /// Register an agent and keep its token in a private file in BOGO's home, never on screen
 /// and never in the client's config. Only the token's hash enters BOGO's log.
-async fn new_agent(root: &Path, name: &str, undo: &mut Undo) -> Result<PathBuf> {
+async fn new_agent(root: &Path, name: &str, undo: &mut Undo) -> Result<(String, PathBuf)> {
     let reg = registry(root)?;
     let mut agent = name.to_owned();
     let mut n = 2;
@@ -856,7 +889,7 @@ async fn new_agent(root: &Path, name: &str, undo: &mut Undo) -> Result<PathBuf> 
     undo.agents.push(agent.clone());
     save_undo(root, undo)?;
     println!("  Added agent {agent}; its token is in {}.", path.display());
-    Ok(path)
+    Ok((agent, path))
 }
 fn bogo_entry(shim: &Path, url: &str, token: &Path) -> Value {
     json!({"command": shim.to_string_lossy(), "args": [],
@@ -907,8 +940,16 @@ async fn agent(root: &Path, ask: &Ask, o: &Options) -> Result<()> {
             .map(str::to_owned)
             .collect();
         let mut moving = vec![];
+        // Servers already behind BOGO (the same command and arguments, or URL): only the
+        // client's entry goes, pointing at BOGO instead.
+        let mut reused: Vec<String> = vec![];
         for (key, value) in &others {
             let v = value.to_value();
+            if let Some(name) = existing(&config, &v) {
+                println!("    {key} is already behind BOGO as upstream {name}.");
+                reused.push(key.clone());
+                continue;
+            }
             match found(key, &v, &mut taken, &mut secret_names) {
                 Ok(f) => {
                     if ask.yes_no(&format!("    Move {key} behind BOGO?"), true)? {
@@ -920,7 +961,7 @@ async fn agent(root: &Path, ask: &Ask, o: &Options) -> Result<()> {
                 Err(why) => println!("    Leaving {key} as it is: {why}."),
             }
         }
-        if moving.is_empty() && has_bogo {
+        if moving.is_empty() && reused.is_empty() && has_bogo {
             continue;
         }
         let mut new_secrets = secrets_text.clone();
@@ -996,9 +1037,13 @@ async fn agent(root: &Path, ask: &Ask, o: &Options) -> Result<()> {
             text.push_str(&policy);
             with_stopped(root, || write_config(root, &text, Some(&new_secrets))).await?;
         }
-        let token = new_agent(root, client.name, &mut undo).await?;
+        let (agent, token) = new_agent(root, client.name, &mut undo).await?;
         back_up(root, &mut undo, &client.path)?;
-        let moved: Vec<&str> = moving.iter().map(|f| f.client_key.as_str()).collect();
+        let moved: Vec<&str> = moving
+            .iter()
+            .map(|f| f.client_key.as_str())
+            .chain(reused.iter().map(String::as_str))
+            .collect();
         let mut kept: Vec<(String, Ordered)> = servers
             .iter()
             .filter(|(k, _)| k != "bogo" && !moved.contains(&k.as_str()))
@@ -1023,12 +1068,12 @@ async fn agent(root: &Path, ask: &Ask, o: &Options) -> Result<()> {
             } else {
                 moved.join(", ")
             },
-            token.file_stem().unwrap_or_default().to_string_lossy()
+            agent
         );
     }
     if !any {
         // No client config to change: give Claude Code a config file of its own.
-        let token = new_agent(root, "Claude Code", &mut undo).await?;
+        let (_, token) = new_agent(root, "Claude Code", &mut undo).await?;
         let dir = root.join("clients");
         private_dir(&dir)?;
         let file = dir.join("claude-code.mcp.json");
