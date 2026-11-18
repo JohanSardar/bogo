@@ -16,7 +16,8 @@ done, so it is safe to run again:
 2. **start**: starts BOGO in the background with a user LaunchAgent.
 3. **phone**: pairs your iPhone with the same 6-digit check as `bogo approver
    add`; skipped when an approver exists.
-4. **agent**: finds the MCP servers in Claude Code (`~/.claude.json`), Claude
+4. **agent**: finds the MCP servers in Claude Code (`~/.claude.json`, including
+   each project's own servers), Claude
    Desktop and Cursor (`~/.cursor/mcp.json`) and offers to move each one behind
    BOGO. Each becomes an upstream; credentials in its `env` or `headers` move to
    `secrets.toml` and are referred to by name. Setup lists each server's tools

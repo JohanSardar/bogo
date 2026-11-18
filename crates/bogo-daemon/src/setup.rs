@@ -56,8 +56,8 @@ pub(crate) struct Ask {
     pub yes: bool,
 }
 impl Ask {
-    /// One question on the terminal. An empty answer, end of input or `--yes` takes the
-    /// suggestion.
+    /// One question on the terminal. An empty answer or `--yes` takes the suggestion. End of
+    /// input is no answer, so it stops setup rather than accept anything for the owner.
     pub fn line(&self, q: &str, suggested: &str) -> Result<String> {
         if self.yes {
             println!("{q} [{suggested}] {suggested}");
@@ -66,7 +66,13 @@ impl Ask {
         print!("{q} [{suggested}] ");
         std::io::stdout().flush().map_err(error)?;
         let mut s = String::new();
-        std::io::stdin().lock().read_line(&mut s).map_err(error)?;
+        if std::io::stdin().lock().read_line(&mut s).map_err(error)? == 0 {
+            println!();
+            return Err(
+                "stopped: input ended before an answer. Run setup in a terminal, or with --yes to take every suggestion (--yes never allows a tool)"
+                    .into(),
+            );
+        }
         if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
             // Answers from a script: show them, so the transcript reads like a session.
             println!("{}", s.trim());
@@ -528,6 +534,8 @@ struct Found {
     secrets: Vec<(String, String)>,
     /// Plain env or header values and secret references, as the temporary discovery config.
     moved: Vec<String>,
+    /// The Claude Code project the entry came from, or None for the client's own list.
+    folder: Option<String>,
 }
 
 fn credential_name(name: &str) -> bool {
@@ -686,10 +694,52 @@ fn found(
         toml: format!("[upstreams.{upstream}]\n{}\n", lines.join("\n")),
         secrets,
         moved,
+        folder: None,
     })
 }
 
-/// The upstream already configured for this client entry, if any.
+/// Whether a client's `env` or `headers` object holds exactly what BOGO hands that upstream.
+fn same_values(
+    client: &Value,
+    ours: &std::collections::BTreeMap<String, bogo_config::Value>,
+) -> bool {
+    let empty = serde_json::Map::new();
+    let client = match client {
+        Value::Null => &empty,
+        Value::Object(o) => o,
+        _ => return false,
+    };
+    client.len() == ours.len()
+        && ours.iter().all(|(name, value)| {
+            let ours = match value {
+                bogo_config::Value::Plain(s) => s.clone(),
+                bogo_config::Value::Secret(s) => match s.expose() {
+                    bogo_config::SecretValue::Value(v) => v.clone(),
+                    bogo_config::SecretValue::Path(p) => p.to_string_lossy().into_owned(),
+                },
+            };
+            client.get(name).and_then(Value::as_str) == Some(ours.as_str())
+        })
+}
+
+/// Whether a client's `bogo` entry reaches this BOGO as an active agent.
+fn bogo_entry_ok(reg: &bogo_log::Registry, entry: &Value, url: &str) -> bool {
+    entry["command"]
+        .as_str()
+        .is_some_and(|p| Path::new(p).exists())
+        && entry["env"]["BOGO_URL"].as_str() == Some(url)
+        && entry["env"]["BOGO_AGENT_TOKEN_FILE"]
+            .as_str()
+            .and_then(|p| token_hash(Path::new(p)))
+            .is_some_and(|h| {
+                reg.agents
+                    .values()
+                    .any(|a| !a.revoked && a.token_sha256 == h)
+            })
+}
+
+/// The upstream already configured for this client entry, if any: the same command,
+/// arguments and environment, or the same URL and headers.
 fn existing(config: &bogo_config::Config, v: &Value) -> Option<String> {
     let args: Vec<String> = v["args"]
         .as_array()
@@ -705,9 +755,13 @@ fn existing(config: &bogo_config::Config, v: &Value) -> Option<String> {
             bogo_config::Upstream::Local {
                 command: c,
                 args: a,
-                ..
-            } => command.as_deref() == Some(c.as_str()) && *a == args,
-            bogo_config::Upstream::Remote { url, .. } => v["url"].as_str() == Some(url.as_str()),
+                env,
+            } => {
+                command.as_deref() == Some(c.as_str()) && *a == args && same_values(&v["env"], env)
+            }
+            bogo_config::Upstream::Remote { url, headers } => {
+                v["url"].as_str() == Some(url.as_str()) && same_values(&v["headers"], headers)
+            }
         };
         same.then(|| name.clone())
     })
@@ -918,9 +972,34 @@ async fn agent(root: &Path, ask: &Ask, o: &Options) -> Result<()> {
             println!("  {}: mcpServers is not an object; skipping.", client.name);
             continue;
         };
-        let has_bogo = servers.iter().any(|(k, _)| k == "bogo");
-        let others: Vec<_> = servers.iter().filter(|(k, _)| k != "bogo").collect();
-        if has_bogo && others.is_empty() {
+        // Claude Code also keeps servers per project, under projects.<folder>.mcpServers.
+        let mut project_servers: Vec<(String, Vec<(String, Ordered)>)> = vec![];
+        if let Some(Ordered::Obj(projects)) = doc.get("projects") {
+            for (folder, project) in projects {
+                if let Some(Ordered::Obj(s)) = project.get("mcpServers")
+                    && !s.is_empty()
+                {
+                    project_servers.push((folder.clone(), s.clone()));
+                }
+            }
+        }
+        // (project folder or None for the client's own list, key, entry)
+        let others: Vec<(Option<&str>, &String, &Ordered)> =
+            servers
+                .iter()
+                .filter(|(k, _)| k != "bogo")
+                .map(|(k, v)| (None, k, v))
+                .chain(project_servers.iter().flat_map(|(folder, s)| {
+                    s.iter().map(move |(k, v)| (Some(folder.as_str()), k, v))
+                }))
+                .collect();
+        // A bogo entry that no longer reaches BOGO (moved shim, other port, revoked agent)
+        // is replaced, as `bogo doctor` tells the owner to do.
+        let reg = registry(root)?;
+        let bogo_ok = servers
+            .iter()
+            .any(|(k, v)| k == "bogo" && bogo_entry_ok(&reg, &v.to_value(), &url));
+        if bogo_ok && others.is_empty() {
             println!("  {}: already goes through BOGO; skipping.", client.name);
             continue;
         }
@@ -942,26 +1021,36 @@ async fn agent(root: &Path, ask: &Ask, o: &Options) -> Result<()> {
         let mut moving = vec![];
         // Servers already behind BOGO (the same command and arguments, or URL): only the
         // client's entry goes, pointing at BOGO instead.
-        let mut reused: Vec<String> = vec![];
-        for (key, value) in &others {
+        let mut reused: Vec<(Option<&str>, &str)> = vec![];
+        // Entries moved in this run, so the same server in two projects becomes one upstream.
+        let mut seen: Vec<(Value, String)> = vec![];
+        for (folder, key, value) in &others {
             let v = value.to_value();
-            if let Some(name) = existing(&config, &v) {
-                println!("    {key} is already behind BOGO as upstream {name}.");
-                reused.push(key.clone());
+            let label = match folder {
+                None => key.to_string(),
+                Some(f) => format!("{key} (project {f})"),
+            };
+            if let Some(name) = existing(&config, &v)
+                .or_else(|| seen.iter().find(|(s, _)| *s == v).map(|(_, n)| n.clone()))
+            {
+                println!("    {label} is already behind BOGO as upstream {name}.");
+                reused.push((*folder, key.as_str()));
                 continue;
             }
             match found(key, &v, &mut taken, &mut secret_names) {
-                Ok(f) => {
-                    if ask.yes_no(&format!("    Move {key} behind BOGO?"), true)? {
+                Ok(mut f) => {
+                    if ask.yes_no(&format!("    Move {label} behind BOGO?"), true)? {
+                        seen.push((v, f.upstream.clone()));
+                        f.folder = folder.map(str::to_owned);
                         moving.push(f)
                     } else {
                         taken.retain(|t| *t != f.upstream);
                     }
                 }
-                Err(why) => println!("    Leaving {key} as it is: {why}."),
+                Err(why) => println!("    Leaving {label} as it is: {why}."),
             }
         }
-        if moving.is_empty() && reused.is_empty() && has_bogo {
+        if moving.is_empty() && reused.is_empty() && bogo_ok {
             continue;
         }
         let mut new_secrets = secrets_text.clone();
@@ -1039,14 +1128,14 @@ async fn agent(root: &Path, ask: &Ask, o: &Options) -> Result<()> {
         }
         let (agent, token) = new_agent(root, client.name, &mut undo).await?;
         back_up(root, &mut undo, &client.path)?;
-        let moved: Vec<&str> = moving
+        let moved: Vec<(Option<&str>, &str)> = moving
             .iter()
-            .map(|f| f.client_key.as_str())
-            .chain(reused.iter().map(String::as_str))
+            .map(|f| (f.folder.as_deref(), f.client_key.as_str()))
+            .chain(reused.iter().copied())
             .collect();
         let mut kept: Vec<(String, Ordered)> = servers
             .iter()
-            .filter(|(k, _)| k != "bogo" && !moved.contains(&k.as_str()))
+            .filter(|(k, _)| k != "bogo" && !moved.contains(&(None, k.as_str())))
             .cloned()
             .collect();
         kept.insert(
@@ -1057,6 +1146,29 @@ async fn agent(root: &Path, ask: &Ask, o: &Options) -> Result<()> {
             ),
         );
         doc.set("mcpServers", Ordered::Obj(kept));
+        // A project's moved servers go; the client's own bogo entry serves every project.
+        for (folder, s) in &project_servers {
+            let kept: Vec<(String, Ordered)> = s
+                .iter()
+                .filter(|(k, _)| !moved.contains(&(Some(folder.as_str()), k.as_str())))
+                .cloned()
+                .collect();
+            if kept.len() == s.len() {
+                continue;
+            }
+            if let Some(Ordered::Obj(projects)) = doc.get_mut("projects")
+                && let Some((_, project)) = projects.iter_mut().find(|(k, _)| k == folder)
+            {
+                project.set("mcpServers", Ordered::Obj(kept));
+            }
+        }
+        let mut names: Vec<&str> = vec![];
+        for (_, k) in &moved {
+            if !names.contains(k) {
+                names.push(k);
+            }
+        }
+        let moved = names;
         let mut out = serde_json::to_vec_pretty(&doc).map_err(error)?;
         out.push(b'\n');
         write_client(&client.path, &out)?;
@@ -1297,6 +1409,12 @@ impl Ordered {
     pub fn get(&self, key: &str) -> Option<&Ordered> {
         match self {
             Ordered::Obj(o) => o.iter().find(|(k, _)| k == key).map(|(_, v)| v),
+            _ => None,
+        }
+    }
+    fn get_mut(&mut self, key: &str) -> Option<&mut Ordered> {
+        match self {
+            Ordered::Obj(o) => o.iter_mut().find(|(k, _)| k == key).map(|(_, v)| v),
             _ => None,
         }
     }
