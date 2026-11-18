@@ -124,10 +124,9 @@ These need no sign-in and never touch mailboxes or rooms:
   and whether it wakes phones.
 - `GET /` answers one line naming BOGO and linking this repository.
 - `GET /install.sh` redirects (307) to
-  `https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh`. The
-  relay serves no script and changes nothing, so
-  `curl -fsSL https://bogo.eilmer.si:8443/install.sh | sh` runs exactly the
-  repository's script.
+  `https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh`.
+  Whoever controls the relay controls this destination. Install directly:
+  `curl -fsSL https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh | sh`.
 
 ## Pairing rooms
 

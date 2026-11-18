@@ -9,7 +9,8 @@ it relies on. The [threat model](threat-model.md) says what BOGO defends
 against and what it doesn't, and the [verification records](status.md) show
 what has actually been run, including what hasn't been yet. The code is MIT
 licensed and every change is reviewed against recorded evidence
-([CONTRIBUTING](../CONTRIBUTING.md)).
+([CONTRIBUTING](../CONTRIBUTING.md)). No independent human security audit has
+been done.
 
 ### Is BOGO ready to protect real actions?
 
@@ -54,7 +55,11 @@ first, the request ends unanswered and nothing runs.
 Ciphertext and routing data: which mailboxes talk, when, and how much. It holds
 no key that can read a request or approve one. The
 [relay protocol](RELAY-PROTOCOL.md) describes it in detail, and you can
-[run your own relay](self-hosting-relay.md) on a server or on your Mac.
+[run your own relay](self-hosting-relay.md) on a server or on your Mac. A
+compromised public relay can use the publisher's APNs key to send generic
+"Approval requested" pushes and redirect `/install.sh`, but cannot read requests
+or produce approvals; it shares a VM with an unrelated website
+([threat model](threat-model.md)).
 
 ### Who sends the push, and what does Apple see?
 

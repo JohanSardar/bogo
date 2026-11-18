@@ -149,7 +149,6 @@ progress at that moment is lost, so pick a moment when nobody is running
    systemctl is-active bogo-relay.service
    journalctl -u bogo-relay -n 5 --no-pager   # "…; it wakes phones with its push key"
    curl -s https://bogo.eilmer.si:8443/healthz   # {"status":"ok","push":true}
-   curl -sI https://bogo.eilmer.si:8443/install.sh   # 307, location: raw.githubusercontent.com/JohanSardar/bogo/main/install.sh
    ```
 
    Then run the `live` client from [Verification](#verification), and repeat

@@ -25,7 +25,7 @@ runs as you configured it, and a denied tool never runs.
    `~/.local/bin`:
 
    ```sh
-   curl -fsSL https://bogo.eilmer.si:8443/install.sh | sh
+   curl -fsSL https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh | sh
    ```
 
 2. **Get the iPhone app.** BOGO's approver is the BOGO tab of the Apple Bridge
@@ -102,7 +102,7 @@ Screenshots are from the iPhone Simulator with the app's built-in demo request.
 
 ## More ways in
 
-- **Read the install script first:** the short URL forwards to
+- **Read the install script first:** use
   [`install.sh`](install.sh) in this repo
   (`https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh`). It
   checks the download's SHA-256 before installing. `BOGO_VERSION` pins a

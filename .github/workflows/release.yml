@@ -92,7 +92,7 @@ jobs:
           notes "## [$VERSION]" > dist/notes.md
           [ -s dist/notes.md ] || notes "## Unreleased" > dist/notes.md
           # shellcheck disable=SC2016 # the backticks are Markdown
-          printf '\nInstall: `curl -fsSL https://bogo.eilmer.si/install.sh | sh`\n' >> dist/notes.md
+          printf '\nInstall: `curl -fsSL https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh | sh`\n' >> dist/notes.md
 
       - name: Publish
         env:

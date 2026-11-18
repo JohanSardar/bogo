@@ -4,7 +4,7 @@ Runs after T33, T34 and T35 merge.
 
 ## Goal
 A newcomer opens either repo and is protected in about five minutes, in three steps:
-1. Install with `curl -fsSL https://bogo.eilmer.si/install.sh | sh`.
+1. Install with `curl -fsSL https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh | sh`.
 2. Get the app from TestFlight.
 3. Run `bogo setup`.
 

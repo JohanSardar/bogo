@@ -8,13 +8,13 @@ app: [add your iPhone](add-your-iphone.md) covers it.
 ## Install
 
 ```sh
-curl -fsSL https://bogo.eilmer.si:8443/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh | sh
 ```
 
-The `:8443` is part of the address: it is the port BOGO's relay answers on.
-The short URL forwards to [`install.sh`](../install.sh) in this repo, so you
-can read the script first, or run it straight from
-`https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh`.
+Use the GitHub URL above. You can read [`install.sh`](../install.sh) first.
+The optional shortcut `https://bogo.eilmer.si:8443/install.sh` is a redirect
+through BOGO's relay. Whoever controls the relay controls what it points to.
+The script's checksum check cannot protect you if the script itself is replaced.
 
 The script:
 
