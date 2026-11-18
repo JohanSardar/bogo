@@ -339,9 +339,28 @@ async fn run(
             connect(&state, &name, &config, changed.clone()),
         )
         .await;
-        if let Ok(Ok(service)) = connected {
+        // Traces carry the upstream's name and a fixed reason only: never its stderr,
+        // arguments, environment or an SDK error's text.
+        let service = match connected {
+            Ok(Ok(service)) => Some(service),
+            Ok(Err(e)) => {
+                let why = match e {
+                    Error::Configuration => "its configuration is invalid",
+                    _ => "it could not be started or reached, or closed before answering",
+                };
+                tracing::warn!(target: "bogo::trace", "upstream {name} did not connect: {why}");
+                None
+            }
+            Err(_) => {
+                tracing::warn!(target: "bogo::trace", "upstream {name} did not answer within 30s");
+                None
+            }
+        };
+        if let Some(service) = service {
             let peer = service.peer().clone();
-            if discover(&state, &name, &peer).await.is_ok() {
+            if discover(&state, &name, &peer).await.is_err() {
+                tracing::warn!(target: "bogo::trace", "upstream {name} sent a tool list BOGO could not read");
+            } else {
                 state.peers.write().await.insert(name.clone(), peer.clone());
                 state.updates.send_modify(|v| *v = v.wrapping_add(1));
                 if let Some(tx) = ready.take() {
@@ -357,8 +376,14 @@ async fn run(
                 }
                 state.peers.write().await.remove(&name);
                 state.updates.send_modify(|v| *v = v.wrapping_add(1));
+                tracing::warn!(target: "bogo::trace", "upstream {name} disconnected");
             }
         }
+        tracing::warn!(
+            target: "bogo::trace",
+            "upstream {name}: trying again in {}s",
+            backoff.as_secs_f32()
+        );
         if let Some(tx) = ready.take() {
             let _ = tx.send(());
         }

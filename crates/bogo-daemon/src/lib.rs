@@ -1,7 +1,10 @@
 //! Serialized effects shell: core output, durable audit record, then effect.
 mod clock;
+mod doctor;
 mod owner;
 mod policy;
+mod recipes;
+mod setup;
 use bogo_approver as a;
 use bogo_config::Config;
 use bogo_core::{Bytes, Core, Input, Output};
@@ -9,8 +12,11 @@ use bogo_front::{Backend, CatalogTool, Invocation, Outcome};
 // Retain the verifier providing the Lean core's C extern hook.
 use bogo_log::{Hex, Log, LogEvent, Registry};
 use bogo_verify as _;
+pub use doctor::doctor;
 use futures::future::BoxFuture;
 pub use owner::{Command, add_upstream, init, launch, local, request, serve};
+pub use recipes::{add_recipe, recipe_names};
+pub use setup::{Options as SetupOptions, Step as SetupStep, check_upstream, setup, undo};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
@@ -19,6 +25,9 @@ use std::{
 use tokio::sync::{mpsc, oneshot};
 
 type Result<T> = std::result::Result<T, String>;
+fn error(e: impl std::fmt::Display) -> String {
+    e.to_string()
+}
 #[derive(Default)]
 struct Snapshot {
     registry: Registry,
@@ -59,7 +68,8 @@ enum Job {
         oneshot::Sender<Result<a::Committed>>,
     ),
     Control(Command, oneshot::Sender<Result<serde_json::Value>>),
-    Catalog,
+    /// Apply a new upstream catalog; answers whether any agent's tool list changed.
+    Catalog(oneshot::Sender<bool>),
 }
 impl Handle {
     async fn control(&self, c: Command) -> Result<serde_json::Value> {
@@ -261,6 +271,21 @@ fn end(why: bogo_core::EndReason) -> (&'static str, a::EndWhy) {
         NotSent => ("notSent", a::EndWhy::Unknown),
     }
 }
+/// Every agent's tool list in one comparable form: the tools as listed and their modes.
+fn view_json(views: &HashMap<Bytes, Vec<CatalogTool>>) -> serde_json::Value {
+    let mut out: Vec<_> = views
+        .iter()
+        .map(|(agent, tools)| {
+            let tools: Vec<_> = tools
+                .iter()
+                .map(|t| serde_json::json!([t.tool, format!("{:?}", t.mode)]))
+                .collect();
+            serde_json::json!([hex::encode(agent), tools])
+        })
+        .collect();
+    out.sort_by_key(|v| v[0].as_str().unwrap_or_default().to_owned());
+    serde_json::Value::Array(out)
+}
 impl Shell {
     async fn append(&mut self, events: Vec<LogEvent>) -> Result<Vec<u64>> {
         let seqs = self.log.append_all(events).await.map_err(|e| {
@@ -271,7 +296,8 @@ impl Shell {
         self.handle.snapshot.write().unwrap().registry = self.registry.clone();
         Ok(seqs)
     }
-    async fn catalog(&mut self) -> Result<()> {
+    /// Apply the manager's catalog. Returns whether any agent's tool list changed.
+    async fn catalog(&mut self) -> Result<bool> {
         let catalog = self.manager.catalog().await;
         let seq = self
             .append(vec![LogEvent::Configured {
@@ -329,13 +355,18 @@ impl Shell {
             }
             views.insert(a.id.0.clone(), tools);
         }
-        self.handle.snapshot.write().unwrap().tools = views;
+        let changed = {
+            let mut snapshot = self.handle.snapshot.write().unwrap();
+            let changed = view_json(&snapshot.tools) != view_json(&views);
+            snapshot.tools = views;
+            changed
+        };
         bogo_state::write_atomic(
             &self.home.root().join("state/tools.json"),
             &serde_json::to_vec(&catalog).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
-        Ok(())
+        Ok(changed)
     }
     /// The name the core judges a call by: the configured policy key for the call's selected
     /// argument, else the tool itself. The selected argument must be a top-level string and

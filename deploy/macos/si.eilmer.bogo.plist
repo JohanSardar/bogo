@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Reference only. `bogo init` and `bogo start` write concrete owner paths. -->
+<!-- Reference only: the shape `plist()` in crates/bogo-daemon/src/owner.rs writes.
+     `bogo init` and `bogo start` fill in the owner's real paths. EnvironmentVariables
+     always holds PATH, plus BOGO_RELAY_CA, BOGO_MAC_NAME and BOGO_APP_BUNDLE_VERSIONS
+     when they are set. Credentials and agent tokens are never copied here. -->
 <plist version="1.0"><dict>
   <key>Label</key><string>si.eilmer.bogo</string>
   <key>ProgramArguments</key><array>
@@ -10,4 +13,7 @@
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>@BOGO_HOME@/run/stdout.log</string>
   <key>StandardErrorPath</key><string>@BOGO_HOME@/run/stderr.log</string>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>@PATH@</string>
+  </dict>
 </dict></plist>

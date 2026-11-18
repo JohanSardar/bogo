@@ -294,7 +294,7 @@ restricted for one named agent without duplicating its display settings.
 | `apns.team_id` | APNs team ID; required nonblank string. | Same as key_id. |
 | `apns.topic` | App bundle ID used for push; required nonblank string. | Same as key_id. |
 | `approvers.iphone.app_id` | Required App ID prefix + bundle ID for App Attest. Confirm the prefix from the provisioning profile; it need not equal the team ID. | Missing, blank, non-string. No App ID-shape check in config parser. |
-| `approvers.iphone.app_attest` | Required nonempty list of `"production"` and/or `"development"`. Production accepts Apple's TestFlight/App Store categories. Enable development only deliberately. | Empty/missing list, duplicate environments, unknown spelling, non-string elements. |
+| `approvers.iphone.app_attest` | Required nonempty list of `"production"` and/or `"development"`. Production accepts Apple's TestFlight/App Store categories; development accepts builds run from Xcode. A new home lists both, so the TestFlight app pairs with no edit; `bogo doctor` flags a list without production. | Empty/missing list, duplicate environments, unknown spelling, non-string elements. |
 | `approvers.iphone.approve_arm_delay` | Positive duration before Approve is enabled on review; explicit owner choice. | Missing/invalid/zero duration. |
 
 An iPhone section needs no APNs section: the relay sends the push that wakes
@@ -350,6 +350,8 @@ configuration outside the agent's editable project when using a sandbox.
 | Variable | Consumer and behavior |
 |---|---|
 | `BOGO_URL`, `BOGO_AGENT_TOKEN` | Required by the stdio shim: MCP URL and named agent token. |
+| `BOGO_AGENT_TOKEN_FILE` | The shim reads the token from the first line of this file when `BOGO_AGENT_TOKEN` is unset. `bogo setup` writes it to `~/.bogo/agents/NAME.token`. |
+| `BOGO_TEST_LAUNCHD_LABEL` | Test builds (`test-approvers`) only: another LaunchAgent label for `start`, `stop` and `setup`, so a test never touches `si.eilmer.bogo`. |
 | `BOGO_APP_BUNDLE_VERSIONS` | Optional comma-separated App Attest build numbers, trimmed. Real attestations carry no build number, so the list is used only if Apple includes one; unset means none would be accepted then. |
 | `BOGO_RELAY_CA` | Optional PEM file adding trust for a private relay; normal TLS hostname checking stays enabled. |
 | `BOGO_MAC_NAME` | Optional name the phone shows for this Mac; defaults to `BOGO Mac`. |

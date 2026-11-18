@@ -77,10 +77,17 @@ pub enum Command {
         id: String,
     },
 }
-fn error(e: impl std::fmt::Display) -> String {
-    e.to_string()
-}
 pub fn init(root: &Path) -> Result<()> {
+    init_quiet(root)?;
+    println!(
+        "Created {}. Set the commented owner values in bogo.toml before starting, or run `bogo setup`, which asks for them.\nMCP URL: http://127.0.0.1:8790/mcp\nStdio shim: bogo-shim, with BOGO_URL=http://127.0.0.1:8790/mcp and BOGO_AGENT_TOKEN from `bogo agent add`.\nUser LaunchAgent prepared at {}.",
+        root.display(),
+        root.join("si.eilmer.bogo.plist").display()
+    );
+    Ok(())
+}
+/// `init` without its message: the home, keys, the config template and the plist.
+pub(crate) fn init_quiet(root: &Path) -> Result<()> {
     let home = bogo_state::Home::open(root).map_err(error)?;
     let lock = home.lock().map_err(error)?;
     home.keys(&lock).map_err(error)?;
@@ -99,14 +106,9 @@ pub fn init(root: &Path) -> Result<()> {
     let plist = plist(root)?;
     bogo_state::write_atomic(&root.join("si.eilmer.bogo.plist"), plist.as_bytes())
         .map_err(error)?;
-    println!(
-        "Created {}. Set the commented owner values in bogo.toml before starting.\nMCP URL: http://127.0.0.1:8790/mcp\nStdio shim: bogo-shim, with BOGO_URL=http://127.0.0.1:8790/mcp and BOGO_AGENT_TOKEN from `bogo agent add`.\nUser LaunchAgent prepared at {}.",
-        root.display(),
-        root.join("si.eilmer.bogo.plist").display()
-    );
     Ok(())
 }
-const TEMPLATE: &str = r#"version = 1
+pub(crate) const TEMPLATE: &str = r#"version = 1
 [server]
 port = 8790
 max_body = "1MiB"
@@ -125,9 +127,11 @@ hide_denied = true
 # key_id = "OWNER_SETS"
 # team_id = "OWNER_SETS"
 # topic = "OWNER_SETS"
-# [approvers.iphone]
-# app_id = "OWNER_SETS"
-# app_attest = ["production"]
+# The BOGO iPhone app. "production" accepts TestFlight and App Store builds,
+# "development" accepts builds run from Xcode.
+[approvers.iphone]
+app_id = "AX3C2B78YD.com.johansardar.applebridge.ios"
+app_attest = ["production", "development"]
 # approve_arm_delay = "OWNER_SETS_DURATION"
 "#;
 fn xml(s: &str) -> String {
@@ -136,6 +140,30 @@ fn xml(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+/// The LaunchAgent label: one per Mac account. Only a test build may override it, with
+/// `BOGO_TEST_LAUNCHD_LABEL`, so a test can start BOGO in the background without touching
+/// the owner's own `si.eilmer.bogo` daemon.
+pub(crate) fn label() -> String {
+    #[cfg(feature = "test-approvers")]
+    if let Ok(l) = std::env::var("BOGO_TEST_LAUNCHD_LABEL")
+        && !l.is_empty()
+        && l != "si.eilmer.bogo"
+    {
+        return l;
+    }
+    "si.eilmer.bogo".into()
+}
+/// Whether launchd has BOGO's LaunchAgent loaded for this account.
+pub(crate) fn launchd_loaded() -> bool {
+    cfg!(target_os = "macos")
+        && std::process::Command::new("launchctl")
+            .arg("print")
+            .arg(format!("gui/{}/{}", nix::unistd::getuid(), label()))
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
 }
 fn plist(root: &Path) -> Result<String> {
     let root = normalize(root)?;
@@ -156,7 +184,7 @@ fn plist(root: &Path) -> Result<String> {
     Ok(format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict><key>Label</key><string>si.eilmer.bogo</string>
+<plist version="1.0"><dict><key>Label</key><string>{}</string>
 <key>ProgramArguments</key><array><string>{}</string><string>--home</string><string>{}</string><string>serve</string></array>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
 <key>StandardOutPath</key><string>{}/run/stdout.log</string>
@@ -164,6 +192,7 @@ fn plist(root: &Path) -> Result<String> {
 <key>EnvironmentVariables</key><dict>{}</dict>
 </dict></plist>
 "#,
+        xml(&label()),
         xml(&bin.to_string_lossy()),
         xml(&root.to_string_lossy()),
         xml(&root.to_string_lossy()),
@@ -177,7 +206,7 @@ pub fn launch(root: &Path, start: bool) -> Result<()> {
     }
     let domain = format!("gui/{}", nix::unistd::getuid());
     let dest = PathBuf::from(std::env::var_os("HOME").ok_or("HOME not set")?)
-        .join("Library/LaunchAgents/si.eilmer.bogo.plist");
+        .join(format!("Library/LaunchAgents/{}.plist", label()));
     if start {
         load(root)?;
         std::fs::create_dir_all(dest.parent().unwrap()).map_err(error)?;
@@ -195,7 +224,7 @@ pub fn launch(root: &Path, start: bool) -> Result<()> {
         }
     } else {
         let out = std::process::Command::new("launchctl")
-            .args(["bootout", &format!("{domain}/si.eilmer.bogo")])
+            .args(["bootout", &format!("{domain}/{}", label())])
             .output()
             .map_err(error)?;
         if !out.status.success() {
@@ -207,7 +236,7 @@ pub fn launch(root: &Path, start: bool) -> Result<()> {
     }
     Ok(())
 }
-fn normalize(path: &Path) -> Result<PathBuf> {
+pub(crate) fn normalize(path: &Path) -> Result<PathBuf> {
     let path = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -225,7 +254,7 @@ fn normalize(path: &Path) -> Result<PathBuf> {
     }
     Ok(normalize(parent)?.join(path.file_name().ok_or("invalid path")?))
 }
-fn load(root: &Path) -> Result<(Config, bogo_config::Secrets)> {
+pub(crate) fn load(root: &Path) -> Result<(Config, bogo_config::Secrets)> {
     let secrets = bogo_config::Secrets::load(
         &root.join("secrets.toml"),
         std::env::var_os("HOME").as_deref().map(Path::new),
@@ -423,13 +452,29 @@ fn read_command(root: &Path, c: &Command, core: Option<&Core>) -> Result<Option<
                 }
             };
             let report = bogo_log::verify::verify_with_core(&entries, core).map_err(error)?;
-            json!(format!("chain intact; {report:?}"))
+            json!(verify_words(&report))
         }
         Command::Outcome { id } => {
             json!(bogo_log::outcome::outcome(&entries, &hex::decode(id).map_err(error)?).wire())
         }
         _ => return Ok(None),
     }))
+}
+/// `bogo log verify` in plain words, keeping the `chain intact` start scripts look for.
+fn verify_words(r: &bogo_log::verify::Report) -> String {
+    let n = |count: usize, one: &str, many: &str| {
+        format!("{count} {}", if count == 1 { one } else { many })
+    };
+    format!(
+        "chain intact: {}; {} registered and {} revoked; {} counted and {} ignored; {} applied and {} ignored.",
+        n(r.entries, "entry", "entries"),
+        n(r.approvers_registered, "approver", "approvers"),
+        r.approvers_revoked,
+        n(r.approvals_counted, "approval", "approvals"),
+        r.approvals_ignored,
+        n(r.denials_applied, "denial", "denials"),
+        r.denials_ignored,
+    )
 }
 pub async fn local(root: &Path, c: Command) -> Result<Value> {
     if let Some(v) = read_command(root, &c, None)? {
@@ -473,8 +518,23 @@ async fn line<R: tokio::io::AsyncBufRead + Unpin>(r: &mut R) -> Result<String> {
     }
     String::from_utf8(out).map_err(error)
 }
+/// The owner socket's path. A Unix socket path has a hard size limit (SUN_LEN), so a long
+/// `--home` is refused here in plain words instead of as the system's error.
+pub(crate) fn socket_path(root: &Path) -> Result<PathBuf> {
+    // sockaddr_un holds 104 bytes on macOS and 108 on Linux, including the final NUL.
+    const MAX: usize = if cfg!(target_os = "macos") { 103 } else { 107 };
+    let socket = root.join("run/bogo.sock");
+    let len = socket.as_os_str().len();
+    if len > MAX {
+        return Err(format!(
+            "the BOGO home path is too long: its control socket {} would be {len} characters, and the system allows {MAX}. Use a shorter --home (for example one under /tmp or your home folder).",
+            socket.display()
+        ));
+    }
+    Ok(socket)
+}
 pub async fn request(root: &Path, c: Command) -> Result<Value> {
-    let stream = match UnixStream::connect(root.join("run/bogo.sock")).await {
+    let stream = match UnixStream::connect(socket_path(root)?).await {
         Ok(s) => s,
         Err(e)
             if matches!(
@@ -711,6 +771,8 @@ impl Shell {
                     hub.revoked(&id).await;
                 });
             }
+            // An owner change (agent added, paused, revoked) changes only that agent's view, and
+            // a new or revoked agent reconnects anyway, so this needs no list-changed notice.
             self.catalog().await?;
             return Ok(v);
         }
@@ -932,10 +994,25 @@ async fn connection(stream: UnixStream, handle: Handle, hub: Arc<a::Hub>) -> Res
     remote.result(result).await
 }
 
-/// The daemon installs no `tracing` subscriber, on purpose: the libraries' diagnostic events
-/// (some carry upstream stderr or error text with URLs) are dropped, so nothing but the
-/// startup error reaches `run/stderr.log`. Turning them on needs each event reviewed first.
+/// Failure traces to stderr (`run/stderr.log` under launchd). Only events a reviewer marked
+/// with the `bogo::trace` target pass, each with fixed text: a failed relay fetch, push or
+/// delivery, and an upstream that does not start or drops. Every other library event (some
+/// carry upstream stderr or error text) is dropped, and `BOGO_LOG` cannot turn them on.
+fn traces() {
+    use tracing_subscriber::{filter::Targets, prelude::*};
+    let _ = tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_ansi(false)
+                .with_target(false)
+                .with_filter(Targets::new().with_target("bogo::trace", tracing::Level::INFO)),
+        )
+        .try_init();
+}
 pub async fn serve(root: &Path) -> Result<()> {
+    let socket = socket_path(root)?;
+    traces();
     let home = bogo_state::Home::open(root).map_err(error)?;
     let lock = home.lock().map_err(error)?;
     let (config, secrets) = load(root)?;
@@ -1282,7 +1359,10 @@ pub async fn serve(root: &Path) -> Result<()> {
                     Job::Control(c, tx) => {
                         let _ = tx.send(shell.control(c).await);
                     }
-                    Job::Catalog => shell.catalog().await?,
+                    Job::Catalog(tx) => {
+                        let changed = shell.catalog().await?;
+                        let _ = tx.send(changed);
+                    }
                 }
                 Ok(())
             }
@@ -1299,7 +1379,6 @@ pub async fn serve(root: &Path) -> Result<()> {
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
         .await
         .map_err(error)?;
-    let socket = root.join("run/bogo.sock");
     if socket.exists() {
         std::fs::remove_file(&socket).map_err(error)?;
     }
@@ -1323,10 +1402,17 @@ pub async fn serve(root: &Path) -> Result<()> {
         Ok::<(), String>(())
     });
     let h = handle.clone();
+    let notify = front.clone();
+    // ARCHITECTURE §3.6: after a new catalog is applied, connected agents are told their tool
+    // list changed, so they list again instead of keeping a stale one until they reconnect.
     let catalog_task = tokio::spawn(async move {
         while changes.changed().await.is_ok() {
-            if h.tx.send(Job::Catalog).is_err() {
+            let (tx, rx) = oneshot::channel();
+            if h.tx.send(Job::Catalog(tx)).is_err() {
                 break;
+            }
+            if rx.await == Ok(true) {
+                notify.catalog_changed().await;
             }
         }
     });
