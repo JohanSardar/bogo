@@ -119,6 +119,7 @@ hide_denied = true
 # BOGO uses the free public relay. To use your own, see docs/self-hosting-relay.md:
 # [relay]
 # url = "https://relay.example.com"
+# The relay wakes the phone; add [apns] only to send pushes with your own key:
 # [apns]
 # key = { secret = "apns_p8" }
 # key_id = "OWNER_SETS"

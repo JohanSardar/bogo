@@ -62,10 +62,13 @@ are always checked; redirects are disabled. Keep client/key values out of logs.
 
 - `POST /v1/allow {senders:[mailbox]}` atomically replaces the authenticated
   recipient's allowlist (at most 1000 entries); it starts empty.
-- `POST /v1/send {to,msg_id,body}` stores a sealed envelope BLOB. `msg_id` is
+- `POST /v1/send {to,msg_id,body,wake?}` stores a sealed envelope BLOB. `msg_id` is
   16 bytes and must match its header. The sender must be on the recipient's
   allowlist. Equal `(to,msg_id,sender,body)` retries return 200. A changed
-  sender or body for a pending ID returns 409; so does a full mailbox.
+  sender or body for a pending ID returns 409; so does a full mailbox. The
+  optional `wake: {token, env}` (a 32-byte APNs device token, `development` or
+  `production`) asks the relay to wake that phone once the message is stored;
+  see [Pushes from the relay](#pushes-from-the-relay).
 - `POST /v1/fetch {wait:bool}` returns up to 32 `{msg_id,from,body}` objects,
   without deleting anything. A long poll waits up to 25 seconds. Subscribe
   before reading so a concurrent send cannot lose its wake-up.
@@ -86,12 +89,52 @@ opaque body and creation time only. Retention is explicitly set with
 Retention is never approval expiry. Endpoint obligations must be resent if
 still live. Endpoint deduplication also covers messages resent after relay ack.
 
+### Pushes from the relay
+
+A relay started with a push key (`--apns-key`, `--apns-key-id`,
+`--apns-team-id`, and `--apns-topic`, which defaults to the app's bundle ID
+`com.johansardar.applebridge.ios`) wakes phones itself, so a Mac needs no APNs
+key of its own. When a send that carries `wake` stores a new message, the relay
+sends one push to that token. A retry of the same message sends none. The
+push is the same for every request and says only that something is waiting:
+
+```json
+{"aps":{"alert":{"title":"BOGO","body":"Approval requested"},"interruption-level":"time-sensitive",
+ "thread-id":"bogo","content-available":1,"sound":"default"},"bogo":{"v":1}}
+```
+
+It names no Mac, request, tool, agent or amount. Its collapse ID is the
+SHA-256 of the message ID. The relay learns the phone's push token and which
+mailbox has something waiting, and nothing else; it never opens the envelope.
+It sends at most 30 pushes per token per minute, and stops pushing to a token
+Apple calls invalid (410, or 400 BadDeviceToken or DeviceTokenNotForTopic)
+until it restarts. A relay without a push key, or an older relay, ignores
+`wake`. A push that fails or never arrives changes nothing: the request waits
+in the mailbox, and the phone fetches it when it opens.
+
+The Mac asks for the wake only for requests, and only when it has no `[apns]`
+section of its own. With `[apns]` it sends its own wake as before (see
+[APNs](#apns)) and never sets `wake`.
+
+### Health, front page and install
+
+These need no sign-in and never touch mailboxes or rooms:
+
+- `GET /healthz` answers `{"status":"ok","push":true|false}`: the relay is up,
+  and whether it wakes phones.
+- `GET /` answers one line naming BOGO and linking this repository.
+- `GET /install.sh` redirects (307) to
+  `https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh`. The
+  relay serves no script and changes nothing, so
+  `curl -fsSL https://bogo.eilmer.si:8443/install.sh | sh` runs exactly the
+  repository's script.
+
 ## Pairing rooms
 
 A room carries one registration between its owner (the Mac) and one other
 mailbox (the phone). Its 16-byte ID is a hash of the pairing code's secret,
 which the relay never sees, so only devices that read the waiting Mac's local
-advert can name it. Rooms are never listed. The
+advert, or the code `bogo approver add` prints, can name it. Rooms are never listed. The
 relay sees each body as opaque bytes: endpoints seal every room message with
 the code's room key, and the relay never authorizes registration. Every body is
 `{room, …}` JSON with hex fields; IDs never appear in URLs.
@@ -157,8 +200,11 @@ from the log. `boot` tells the phone that requests from earlier boots are over.
 The Mac allowlists every approver it knows, revoked ones included, so a revoked
 phone's late messages arrive and are rejected rather than silently dropped.
 
-The push is only a wake-up; the mailbox is the queue. Each delivery attempt
-sends the request to the mailbox and an APNs wake at the same time. Once APNs
+The push is only a wake-up; the mailbox is the queue. Without `[apns]`, the
+Mac puts the phone's token in the request's `wake` and the relay sends the push
+([Pushes from the relay](#pushes-from-the-relay)). With `[apns]`, each delivery
+attempt sends the request to the mailbox and the Mac's own APNs wake at the
+same time. Once APNs
 accepts a wake for a request, resends of it carry no more wakes. A 410, or a 400
 BadDeviceToken or DeviceTokenNotForTopic, stops wake-ups to that token until a
 newer `pushToken` arrives.
@@ -198,7 +244,8 @@ idempotent.
 | 0x06 REG_SUBMIT | phone | sealed `{approvalKey, proof, phoneE2e, phoneRelay, attestation, pushToken, pushEnv, encodingVersions}` |
 | 0x07 REGISTERED | Mac | sealed `{txId, approverId}` |
 | 0x08 REFUSED | Mac | sealed `{why}` |
-| 0x09 MAC_ABORT / 0x0a PHONE_ABORT | either | empty |
+| 0x09 MAC_ABORT | Mac | empty |
+| 0x0a PHONE_ABORT | phone | `{"cancelled":true}` when the owner cancelled, `{"why":"…"}` when something failed on the phone; empty from older phones |
 
 The phone checks `Cm` against the reveal. Commit then reveal stops either side
 from choosing its key after seeing the other's. Both sides then show
@@ -273,12 +320,16 @@ part of the device session.
 
 `bogo-apns` reads the referenced `.p8` at runtime, zeroizes the temporary PEM,
 uses ES256 JWT provider auth over HTTP/2 and caches tokens for 50 minutes.
-The client only emits the fixed generic BOGO wake payload and routing IDs.
+The client only emits the fixed generic BOGO wake payload: the Mac's carries
+routing IDs (`bogo.mac`, `bogo.rid`) so a tap opens that request, and the
+relay's carries none.
 Its collapse ID is the SHA-256 of the full request ID (64 ASCII bytes), so all
 40 request-ID bytes distinguish notifications. APNs rejection details expose
 only status, Apple's reason and request UUID, never auth/key data. The caller
 owns retry and device-token/environment updates. Sandbox and production hosts
-are fixed and redirects disabled.
+are fixed and redirects disabled; only a test can point the client at a
+stand-in for Apple (`Client::stand_in`, the relay's hidden
+`--apns-stand-in`).
 
 ## Local use
 

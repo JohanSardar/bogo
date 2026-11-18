@@ -98,6 +98,67 @@ sudo systemd-run --wait --collect --unit=bogo-relay-issue \
 sudo systemctl start bogo-relay.service
 ```
 
+## Push key
+
+The relay wakes phones with the owner's APNs key, `AuthKey_L2854KRF5Z.p8`
+(key ID `L2854KRF5Z`, team `AX3C2B78YD`, topic
+`com.johansardar.applebridge.ios`). It lives at `/etc/bogo-relay/apns.p8`,
+root:root 0400. systemd hands the service a copy through `LoadCredential`, so
+the `bogo-relay` user can read only that copy and the file itself stays
+root's. Transfer it straight into place; never print it, put it in a command
+argument, or leave a copy anywhere else.
+
+## Updating the relay
+
+This adds pushes to a running relay without disturbing paired phones or Apple
+Bridge. Paired phones keep their mailboxes: messages are in SQLite and survive
+the restart, and clients sign in again on their own. Only a pairing in
+progress at that moment is lost, so pick a moment when nobody is running
+`bogo approver add`.
+
+1. Record the Apple Bridge baseline as in [Verification](#verification):
+   `ab-relay` status, PID and start time, unit hash, port 443 certificate
+   fingerprint, the `curl` response, and the firewall list.
+2. Build the new binary as in [Installation](#installation).
+3. Put the push key in place from the Mac, piping the file so it is never
+   shown (on the Mac the key is the file named by the `apns_p8` secret in
+   `~/.bogo/secrets.toml`):
+
+   ```sh
+   gcloud compute ssh ab-relay --zone=us-central1-a --project=excerlock -- \
+     'sudo install -o root -g root -m 0400 /dev/stdin /etc/bogo-relay/apns.p8' \
+     < ~/.config/apple-bridge/apns/AuthKey_L2854KRF5Z.p8
+   sudo stat -c '%a %U:%G %s %n' /etc/bogo-relay/apns.p8   # on the VM: 400 root:root, nonzero size
+   ```
+
+4. Install the binary and the updated unit, then reload systemd:
+
+   ```sh
+   sudo install -o root -g root -m 0755 bogo-relay /opt/bogo-relay/bin/bogo-relay
+   sudo install -o root -g root -m 0644 bogo-relay.service /etc/systemd/system/bogo-relay.service
+   sudo systemctl daemon-reload
+   ```
+
+   The unit only starts once both the certificate and `apns.p8` exist, so
+   step 3 comes first.
+5. Restart only BOGO: `sudo systemctl restart bogo-relay.service`. Never
+   restart `ab-relay` or reboot the VM.
+6. Check it:
+
+   ```sh
+   systemctl is-active bogo-relay.service
+   journalctl -u bogo-relay -n 5 --no-pager   # "…; it wakes phones with its push key"
+   curl -s https://bogo.eilmer.si:8443/healthz   # {"status":"ok","push":true}
+   curl -sI https://bogo.eilmer.si:8443/install.sh   # 307, location: raw.githubusercontent.com/JohanSardar/bogo/main/install.sh
+   ```
+
+   Then run the `live` client from [Verification](#verification), and repeat
+   the Apple Bridge baseline; everything but the Date header must match.
+
+To undo, reinstall the previous binary and unit, `daemon-reload`, and restart
+`bogo-relay.service`; the old relay ignores the `wake` field and Macs fall back
+to their own `[apns]` if they have it.
+
 ## Verification
 
 Record Apple Bridge's status, PID/start time, served certificate fingerprint,

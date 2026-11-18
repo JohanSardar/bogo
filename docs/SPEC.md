@@ -214,7 +214,7 @@ The actions are **Approve** (needs Face ID) and **Deny** (with an optional note)
 - It runs on the same VPS as Apple Bridge's relay, but as a separate service, completely unconnected: its own port, its own service and its own state.
 - It lets the phone reach BOGO from anywhere, cellular included, without hosting BOGO in the cloud.
 - It only passes messages along. Request contents are encrypted end to end between BOGO and the phone, and decisions are signed, so the relay sees only ciphertext and timing.
-- BOGO on the Mac sends the push notifications itself, with the owner's existing APNs key. The relay holds no secrets.
+- The relay sends the push that wakes the phone, with the owner's existing APNs key, so a Mac needs no key of its own. The push says only that an approval is waiting. The key can't open or forge anything; the relay still holds nothing that reads a request or makes a decision. A Mac may instead send its own pushes with `[apns]`.
 
 ### 3.17 The sandbox
 
@@ -321,7 +321,7 @@ Note the difference between the last two. A **denial** is the owner saying no. A
 - **Swift / iOS**, inside the existing [**apple-bridge-iphone**](https://github.com/JohanSardar/apple-bridge-iphone) app, for the iPhone approver: Secure Enclave keys with Face ID.
 - **macOS** for BOGO in this version.
 - **The VPS that hosts Apple Bridge's relay** also hosts BOGO's relay, at **`bogo.eilmer.si`**, on its own port and service. DNS for `eilmer.si` is on Cloudflare.
-- **APNs** with the owner's existing key, sent from the Mac.
+- **APNs** with the owner's existing key, sent from the relay (or from a Mac that has its own `[apns]`).
 - **Docker** for the reference sandbox.
 - **TOML** for `~/.bogo/bogo.toml` (policy) and `~/.bogo/secrets.toml` (credentials, readable only by the owner).
 - **Upstreams used to prove it:**

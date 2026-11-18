@@ -74,7 +74,8 @@ Screenshots are from the iPhone Simulator with the app's built-in demo request.
   [Join the TestFlight beta](https://testflight.apple.com/join/dQu75bv1), or
   [build it from source](https://github.com/JohanSardar/apple-bridge-iphone#build-and-check).
   The first build is still waiting for Apple's Beta App Review; until it
-  passes, the link says the beta isn't accepting testers.
+  passes, the link says the beta isn't accepting testers. Then
+  [add your iPhone](docs/add-your-iphone.md) to BOGO on your Mac.
 - **Connect an agent:** [Claude Code and other MCP clients](docs/agents.md).
 
 ## Quick start on macOS

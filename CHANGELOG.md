@@ -10,6 +10,15 @@ Changes to the BOGO tab of the iPhone app are listed in the
 
 ### Added
 
+- The relay wakes your phone, so a Mac needs no `[apns]` section or push key.
+  The push says only "Approval requested".
+- Pairing from another network: `bogo approver add` prints a code and a QR code
+  of it. On the iPhone, tap "Mac not listed? Use a code". The 6 digits are
+  compared as before, and nearby pairing is unchanged.
+- [Add your iPhone](docs/add-your-iphone.md), a guide from install to the first
+  approval.
+- The relay answers `/healthz`, a one-line `/`, and `/install.sh`, which
+  redirects to the install script in this repository.
 - Front page, [docs index](docs/README.md), [FAQ](docs/faq.md),
   [agent setup](docs/agents.md), [what is verified](docs/status.md),
   security policy, contributing guide and issue and pull request templates.
@@ -42,4 +51,6 @@ Changes to the BOGO tab of the iPhone app are listed in the
 
 ### Changed
 
+- A failed `bogo approver add` prints what the phone reported, for example a
+  Keychain or App Attest error, instead of always "the phone cancelled".
 - Secrets shorter than 8 characters are refused.

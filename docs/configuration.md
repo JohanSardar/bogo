@@ -289,7 +289,7 @@ restricted for one named agent without duplicating its display settings.
 |---|---|---|
 | `relay.url` | Your own relay, `https://host` or `https://host:port`. Without a `[relay]` table BOGO uses the free public relay, `https://bogo.eilmer.si:8443`. A waiting Mac tells the phone a non-public relay's address, so the phone needs no setting. See [self-hosting](self-hosting-relay.md). | Missing (when the table exists), non-string, not `https://`, empty host, or a path, query, fragment or user part. |
 | `relay.max_message_age`, `relay.mailbox_capacity` | Ignored; accepted so older files still load. Retention and capacity are `bogo-relay` flags. | Nothing. |
-| `apns.key` | Required `{ secret = "NAME" }`; route needs a path secret naming the APNs `.p8` file. | Missing/malformed/unknown reference. Config parser accepts a value secret, but daemon rejects it when constructing the iPhone route. |
+| `apns.key` | Optional section: without `[apns]` the relay wakes the phone. With it, required `{ secret = "NAME" }`; route needs a path secret naming the APNs `.p8` file. | Missing/malformed/unknown reference. Config parser accepts a value secret, but daemon rejects it when constructing the iPhone route. |
 | `apns.key_id` | APNs signing key ID; required nonblank string. | Missing, blank, non-string. No ID-shape check in config parser. |
 | `apns.team_id` | APNs team ID; required nonblank string. | Same as key_id. |
 | `apns.topic` | App bundle ID used for push; required nonblank string. | Same as key_id. |
@@ -297,8 +297,11 @@ restricted for one named agent without duplicating its display settings.
 | `approvers.iphone.app_attest` | Required nonempty list of `"production"` and/or `"development"`. Production accepts Apple's TestFlight/App Store categories. Enable development only deliberately. | Empty/missing list, duplicate environments, unknown spelling, non-string elements. |
 | `approvers.iphone.approve_arm_delay` | Positive duration before Approve is enabled on review; explicit owner choice. | Missing/invalid/zero duration. |
 
-An iPhone section requires an APNs section. Only a build with
-`test-registration` may omit APNs and register without App Attest. Present
+An iPhone section needs no APNs section: the relay sends the push that wakes
+the phone, and the push carries nothing about the request. Add `[apns]` only to
+send pushes from the Mac with your own key, for example with your own relay
+that has no push key. Only a build with `test-registration` may register
+without App Attest. Present
 attestation is still verified. `test-approvers` independently enables software
 approval and its verifier; neither feature belongs in a production build.
 
