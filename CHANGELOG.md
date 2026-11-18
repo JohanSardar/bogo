@@ -10,6 +10,10 @@ Changes to the BOGO tab of the iPhone app are listed in the
 
 ### Added
 
+- One-line install for Apple Silicon Macs:
+  `curl -fsSL https://bogo.eilmer.si:8443/install.sh | sh`, from GitHub releases
+  that CI builds when a version tag is pushed ([release rule](docs/release.md)).
+- `bogo --version` prints the commit it was built from.
 - The relay wakes your phone, so a Mac needs no `[apns]` section or push key.
   The push says only "Approval requested".
 - Pairing from another network: `bogo approver add` prints a code and a QR code

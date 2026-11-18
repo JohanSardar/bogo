@@ -2,7 +2,7 @@ use bogo_daemon::{Command, init, launch, request, serve};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 #[derive(Parser)]
-#[command(version, about = "BOGO owner commands")]
+#[command(version = env!("BOGO_VERSION_LINE"), about = "BOGO owner commands")]
 struct Args {
     #[arg(long, global = true)]
     home: Option<PathBuf>,

@@ -68,8 +68,20 @@ Screenshots are from the iPhone Simulator with the app's built-in demo request.
 
 ## Get it
 
-- **Mac:** build from source with the [quick start](#quick-start-on-macos)
-  below. There are no prebuilt binaries yet.
+- **Mac (Apple Silicon):** install with one command, no sudo, into
+  `~/.local/bin`:
+
+  ```sh
+  curl -fsSL https://bogo.eilmer.si:8443/install.sh | sh
+  ```
+
+  The short URL forwards to
+  `https://raw.githubusercontent.com/JohanSardar/bogo/main/install.sh`, which
+  you can read first or run the same way. It checks the download's SHA-256
+  before installing. Set `BOGO_VERSION` to pin a release or
+  `BOGO_INSTALL_DIR` to install elsewhere, and run it again to upgrade.
+  [Releasing BOGO](docs/release.md) covers versions and signing. To build from
+  source instead, follow the [quick start](#quick-start-on-macos) below.
 - **iPhone:** the BOGO tab is part of the Apple Bridge iPhone app.
   [Join the TestFlight beta](https://testflight.apple.com/join/dQu75bv1), or
   [build it from source](https://github.com/JohanSardar/apple-bridge-iphone#build-and-check).
