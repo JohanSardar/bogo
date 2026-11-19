@@ -9,7 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-hpke = { version = "0.13", features = ["x25519"] }
+hpke = { version = "0.15", features = ["x25519"] }
 rand = "0.9"
 sha2 = "0.10"
 thiserror = "2"
