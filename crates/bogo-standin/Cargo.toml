@@ -39,7 +39,7 @@ hex = "0.4"
 base64 = "0.22"
 rand = "0.8"
 sha2 = "0.10"
-p256 = { version = "0.13", features = ["ecdsa"] }
+p256 = { version = "0.14", features = ["ecdsa"] }
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tracing-subscriber.workspace = true

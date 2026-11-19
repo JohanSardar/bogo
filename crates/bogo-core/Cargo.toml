@@ -13,7 +13,7 @@ bogo-json = { workspace = true }
 [dev-dependencies]
 # The verifier behind the core's extern hook, and keys to sign real approvals with.
 bogo-verify = { path = "../bogo-verify" }
-p256 = { version = "0.13", features = ["ecdsa"] }
+p256 = { version = "0.14", features = ["ecdsa"] }
 
 [lints]
 workspace = true

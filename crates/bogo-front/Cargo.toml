@@ -19,7 +19,7 @@ rand = "0.8"
 
 [dev-dependencies]
 bogo-verify = { path = "../bogo-verify" }
-p256 = { version = "0.13", features = ["ecdsa"] }
+p256 = { version = "0.14", features = ["ecdsa"] }
 
 [lints]
 workspace = true
