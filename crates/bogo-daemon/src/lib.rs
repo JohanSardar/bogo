@@ -19,7 +19,7 @@ pub use recipes::{add_recipe, recipe_names};
 pub use setup::{Options as SetupOptions, Step as SetupStep, check_upstream, setup, undo};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, RwLock},
 };
 use tokio::sync::{mpsc, oneshot};
@@ -42,7 +42,11 @@ struct Handle {
 }
 enum Job {
     Event(Input),
-    Invoke(Input, oneshot::Sender<Outcome>),
+    Invoke(
+        Input,
+        Option<bogo_front::ApprovalGroup>,
+        oneshot::Sender<Outcome>,
+    ),
     Dispatch(
         Bytes,
         oneshot::Sender<std::result::Result<bogo_upstream::Forward, bogo_upstream::Error>>,
@@ -124,7 +128,7 @@ impl Backend for Handle {
     }
     fn invoke(&self, c: Invocation) -> BoxFuture<'_, Outcome> {
         let (tx, rx) = oneshot::channel();
-        let _ = self.tx.send(Job::Invoke(c.input, tx));
+        let _ = self.tx.send(Job::Invoke(c.input, c.approval_group, tx));
         Box::pin(async move {
             rx.await.unwrap_or(Outcome::Error(
                 "BOGO stopped; outcome unknown; never retried.".into(),
@@ -217,6 +221,7 @@ struct Call {
     req: Option<Bytes>,
     waiters: Vec<oneshot::Sender<Outcome>>,
     staged: bool,
+    group: Option<a::ApprovalGroup>,
 }
 struct Shell {
     core: Core,
@@ -229,6 +234,8 @@ struct Shell {
     sessions: HashMap<Bytes, Bytes>,
     requests: HashMap<Bytes, (Bytes, Vec<Bytes>)>,
     counted: HashMap<Bytes, Vec<Bytes>>,
+    group_requests: HashMap<Bytes, a::ApprovalGroup>,
+    selected_groups: HashSet<String>,
     manager: Arc<bogo_upstream::Manager>,
     hub: Arc<a::Hub>,
     handle: Handle,
@@ -410,8 +417,55 @@ impl Shell {
         self.deadline = step.deadline_ms;
         self.apply(input, step.outputs).await
     }
-    async fn apply(&mut self, input: Input, outputs: Vec<Output>) -> Result<Vec<Output>> {
+    async fn apply(&mut self, input: Input, mut outputs: Vec<Output>) -> Result<Vec<Output>> {
         let mut events = vec![];
+        let mut superseded = HashSet::new();
+        let selection = outputs.iter().find_map(|output| match output {
+            Output::Settled { req, .. } => self
+                .group_requests
+                .get(req)
+                .map(|group| (req.clone(), group.id.clone())),
+            _ => None,
+        });
+        if let Some((winner, group)) = &selection {
+            if self.selected_groups.contains(group) {
+                return Err("approval group already selected".into());
+            }
+            // The core has accepted the exact approval. Remove all siblings from the
+            // core before delivering any effects, then sync the claim before dispatch.
+            events.push(LogEvent::GroupSelected {
+                group: group.clone(),
+                req: Hex(winner.clone()),
+            });
+            for (req, candidate) in &self.group_requests {
+                if candidate.id == *group && req != winner {
+                    let step = self
+                        .core
+                        .step(&Input::OwnerCancel { req: req.clone() })
+                        .map_err(error)?;
+                    self.deadline = step.deadline_ms;
+                    if !step.outputs.is_empty() {
+                        superseded.insert(req.clone());
+                        outputs.extend(step.outputs);
+                    }
+                }
+            }
+        }
+        let superseded_calls: HashSet<_> = outputs
+            .iter()
+            .filter_map(|output| match output {
+                Output::Reject { call, .. }
+                    if self
+                        .calls
+                        .get(call)
+                        .and_then(|c| c.req.as_ref())
+                        .is_some_and(|req| superseded.contains(req)) =>
+                {
+                    Some(call.clone())
+                }
+                _ => None,
+            })
+            .collect();
         if let Input::Approval {
             approver,
             req,
@@ -509,7 +563,11 @@ impl Shell {
                 }
                 Output::Reject { call, why } => events.push(LogEvent::CallOutcome {
                     call: Hex(call.clone()),
-                    outcome: format!("rejected:{why:?}"),
+                    outcome: if superseded_calls.contains(call) {
+                        "rejected:Superseded".into()
+                    } else {
+                        format!("rejected:{why:?}")
+                    },
                     registry_seq: None,
                 }),
                 Output::Attach { call, primary } => events.push(LogEvent::CallOutcome {
@@ -554,7 +612,12 @@ impl Shell {
                 }
                 Output::Ended { req, why, .. } => events.push(LogEvent::RequestEnded {
                     req: Hex(req.clone()),
-                    why: end(*why).0.into(),
+                    why: if superseded.contains(req) {
+                        a::EndWhy::Superseded.wire()
+                    } else {
+                        end(*why).0
+                    }
+                    .into(),
                 }),
                 Output::AgentPaused { agent } => {
                     let by = if let Input::PauseAgent { approver, .. } = &input {
@@ -575,6 +638,9 @@ impl Shell {
         if !events.is_empty() {
             self.append(events).await?;
         }
+        if let Some((_, group)) = selection {
+            self.selected_groups.insert(group);
+        }
         for o in &outputs {
             match o {
                 Output::Ask {
@@ -586,6 +652,17 @@ impl Shell {
                 } => {
                     self.requests
                         .insert(req.clone(), (bytes.clone(), to.clone()));
+                    let approval_group = match &input {
+                        Input::Call { call, .. } => self.calls.get_mut(call).and_then(|c| {
+                            let group = c.group.clone()?;
+                            c.req = Some(req.clone());
+                            Some(group)
+                        }),
+                        _ => None,
+                    };
+                    if let Some(group) = &approval_group {
+                        self.group_requests.insert(req.clone(), group.clone());
+                    }
                     self.hub.ask(
                         a::Outbound {
                             req: req
@@ -601,6 +678,7 @@ impl Shell {
                                 .as_ref()
                                 .map_or(0, |i| i.approve_arm_delay.as_millis() as u64),
                             group_key: group_key.clone(),
+                            approval_group,
                         },
                         &ids(to),
                     );
@@ -615,10 +693,15 @@ impl Shell {
                     .settled(req.as_slice().try_into().map_err(|_| "bad req")?, &ids(to)),
                 Output::Ended { req, why, to } => {
                     self.requests.remove(req);
+                    self.group_requests.remove(req);
                     self.counted.remove(req);
                     self.hub.ended(
                         req.as_slice().try_into().map_err(|_| "bad req")?,
-                        end(*why).1,
+                        if superseded.contains(req) {
+                            a::EndWhy::Superseded
+                        } else {
+                            end(*why).1
+                        },
                         &ids(to),
                     );
                 }
@@ -648,7 +731,14 @@ impl Shell {
                     }
                 }
                 Output::PendingApproval { call } => self.deliver(call, Outcome::Pending),
-                Output::Reject { call, why } => self.deliver(call, Outcome::Rejected(why.clone())),
+                Output::Reject { call, why } => {
+                    let outcome = if superseded_calls.contains(call) {
+                        Outcome::Error("Another option in this approval group was selected. This action was not performed.".into())
+                    } else {
+                        Outcome::Rejected(why.clone())
+                    };
+                    self.deliver(call, outcome);
+                }
                 Output::FloodDropped { call } => {
                     self.deliver(call, Outcome::Rejected(bogo_core::Rejection::Exhausted))
                 }
@@ -744,6 +834,7 @@ impl Shell {
         self.append(events).await?;
         if let Some(req) = req {
             self.counted.remove(&req);
+            self.group_requests.remove(&req);
             if let Some((_, to)) = self.requests.remove(&req) {
                 self.hub.outcome(
                     req.as_slice().try_into().map_err(|_| "bad req")?,

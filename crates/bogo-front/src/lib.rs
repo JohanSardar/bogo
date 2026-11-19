@@ -48,6 +48,43 @@ pub struct CatalogTool {
     pub mode: bogo_core::Mode,
 }
 
+const APPROVAL_GROUP: &str = "bogo.dev/approvalGroup";
+
+/// Agent-provided metadata for a mutually exclusive group of protected calls.
+#[derive(Clone, Debug)]
+pub struct ApprovalGroup {
+    pub id: String,
+    pub title: String,
+}
+
+impl ApprovalGroup {
+    fn parse(params: &JVal) -> Result<Option<Self>, &'static str> {
+        let Some(value) = field(params, "_meta").and_then(|m| field(m, APPROVAL_GROUP)) else {
+            return Ok(None);
+        };
+        let invalid = "bogo.dev/approvalGroup requires a 32-digit lowercase hex id and a title of 1–120 characters.";
+        let id = field(value, "id").and_then(string).ok_or(invalid)?;
+        let title = field(value, "title")
+            .and_then(string)
+            .ok_or(invalid)?
+            .trim();
+        if id.len() != 32
+            || !id
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            || title.is_empty()
+            || title.chars().count() > 120
+            || title.chars().any(char::is_control)
+        {
+            return Err(invalid);
+        }
+        Ok(Some(Self {
+            id: id.into(),
+            title: title.into(),
+        }))
+    }
+}
+
 /// The full POST is retained for audit/debugging; `input` contains the strict lexical
 /// argument tree. Object keys are sorted by bogo-json; number tokens remain untouched.
 #[derive(Clone)]
@@ -55,6 +92,7 @@ pub struct Invocation {
     pub input: Input,
     pub body: Bytes,
     pub session_capable: bool,
+    pub approval_group: Option<ApprovalGroup>,
 }
 
 /// Daemon boundary. All events must reach the effects shell in order and all returned
@@ -284,6 +322,7 @@ struct Exact {
     name: String,
     args: Option<JVal>,
     body: Bytes,
+    approval_group: Option<ApprovalGroup>,
     rpc_id: String,
     call: Arc<Call>,
     capable: bool,
@@ -506,6 +545,10 @@ async fn edge(State(front): State<Front>, mut req: Request, next: Next) -> Respo
             {
                 return StatusCode::BAD_REQUEST.into_response();
             }
+            let approval_group = match ApprovalGroup::parse(params) {
+                Ok(group) => group,
+                Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
+            };
             let capable = key.is_some();
             let session_key = key
                 .clone()
@@ -541,6 +584,7 @@ async fn edge(State(front): State<Front>, mut req: Request, next: Next) -> Respo
                 name: name.into(),
                 args: field(params, "arguments").cloned(),
                 body: bytes.clone(),
+                approval_group,
                 rpc_id: id.write(),
                 call: call.clone(),
                 capable,
@@ -702,6 +746,7 @@ impl ServerHandler for Handler {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(
             ServerCapabilities::builder()
+                .enable_experimental_with([(APPROVAL_GROUP.into(), JsonObject::new())].into())
                 .enable_tools()
                 .enable_tool_list_changed()
                 .build(),
@@ -777,6 +822,7 @@ impl ServerHandler for Handler {
             },
             body: exact.body,
             session_capable: exact.capable,
+            approval_group: exact.approval_group,
         };
         let future = {
             let sessions = self.0.0.sessions.lock().unwrap();

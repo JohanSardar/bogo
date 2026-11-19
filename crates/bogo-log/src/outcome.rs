@@ -22,6 +22,7 @@ impl Outcome {
             Outcome::Executed => "executed",
             Outcome::NotSent => "notSent",
             Outcome::Denied => "denied",
+            Outcome::Ended(why) if why == "superseded" => "superseded",
             Outcome::Ended(_) => "ended",
             Outcome::Unknown => "unknown",
             Outcome::NoRecord => "noRecord",

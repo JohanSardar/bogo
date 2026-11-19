@@ -563,6 +563,7 @@ async fn inbound(ctx: &Ctx, client: &Client) -> Result<(), String> {
                 bytes,
                 pause_epoch,
                 arm_delay_ms,
+                ..
             } => {
                 let late = p.rec(&req_id.0).map(|r| r.phase.clone());
                 let fresh = late

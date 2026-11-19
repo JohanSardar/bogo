@@ -45,6 +45,8 @@ pub enum MacMsg {
         bytes: B,
         pause_epoch: u64,
         arm_delay_ms: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        approval_group: Option<bogo_approver::ApprovalGroup>,
     },
     Settled {
         req_id: B,

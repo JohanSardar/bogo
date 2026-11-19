@@ -106,6 +106,51 @@ policy = "deny"
 thresholds and schema risks. Missing approvers do not open a tool. Disconnected
 upstreams keep their cached tools discoverable; calls are not sent.
 
+## Grouped approvals
+
+With BOGO 0.2.0 or later and Apple Bridge 0.4.0 or later, an orchestrator can
+offer several alternatives for the same task. Check that the MCP initialize
+result advertises `capabilities.experimental["bogo.dev/approvalGroup"]`
+before sending grouped calls. Submit each option as a
+separate MCP `tools/call` with the same `params._meta["bogo.dev/approvalGroup"]`
+object. Each call keeps its own tool, arguments, worker identity, and session.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "method": "tools/call",
+  "params": {
+    "name": "mail__send_reply",
+    "arguments": {
+      "to": "maya@example.test",
+      "body": "I'll send a preview on Thursday."
+    },
+    "_meta": {
+      "bogo.dev/approvalGroup": {
+        "id": "e9208b4f7e89424083d86c97bb34f4988",
+        "title": "Reply to Maya"
+      }
+    }
+  }
+}
+```
+
+Generate a fresh random 128-bit ID per task and encode it as 32 lowercase hex
+digits. Share the ID and title with the workers you want to contribute to
+that task. Submit the options concurrently and keep each call open. Options
+appear in the group as they arrive. Use protected tools in `wait` mode.
+BOGO treats the title as agent-provided text and strips the metadata from
+the upstream call. Configure display hints on the tools to highlight values
+such as an item name, price, or draft body in the comparison.
+
+The first option to meet its normal approval threshold closes the group.
+Its agent receives the normal call result. The other live calls return an
+error explaining that another option was selected. If a worker disconnects
+while the group is waiting, only that worker's requests end. The selection
+survives daemon restarts and closes the group ID even if the selected call
+could not be sent. A fresh group ID represents a new decision.
+
 ## Approvers
 
 To add your iPhone, follow [Add your iPhone](add-your-iphone.md). It needs

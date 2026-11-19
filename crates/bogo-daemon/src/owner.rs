@@ -1175,6 +1175,14 @@ pub async fn serve(root: &Path) -> Result<()> {
         sessions: HashMap::new(),
         requests: HashMap::new(),
         counted: HashMap::new(),
+        group_requests: HashMap::new(),
+        selected_groups: entries
+            .iter()
+            .filter_map(|entry| match &entry.event {
+                LogEvent::GroupSelected { group, .. } => Some(group.clone()),
+                _ => None,
+            })
+            .collect(),
         manager,
         hub: hub.clone(),
         handle: handle.clone(),
@@ -1209,7 +1217,7 @@ pub async fn serve(root: &Path) -> Result<()> {
                     Job::Event(i) => {
                         shell.step(i).await?;
                     }
-                    Job::Invoke(mut i, tx) => {
+                    Job::Invoke(mut i, group, tx) => {
                         let Input::Call {
                             call,
                             session,
@@ -1242,7 +1250,7 @@ pub async fn serve(root: &Path) -> Result<()> {
                                 tool: name.clone(),
                                 arguments: args.as_ref().map(bogo_json::JVal::write),
                                 agent: agent_id,
-                                agent_name,
+                                agent_name: agent_name.clone(),
                                 policy,
                             }])
                             .await?;
@@ -1260,6 +1268,31 @@ pub async fn serve(root: &Path) -> Result<()> {
                             let _ = tx.send(Outcome::Rejected(bogo_core::Rejection::UnknownTool));
                             return Ok(());
                         }
+                        let group = if let Some(group) = group {
+                            let rejected = if shell.selected_groups.contains(&group.id) {
+                                Some(("GroupSelected", "This approval group already has a selected option. This action was not performed."))
+                            } else if shell.group_requests.values().any(|g| g.id == group.id && g.title != group.title) {
+                                Some(("GroupTitle", "All options in an approval group must use the same title."))
+                            } else if !agent_name.as_deref().is_some_and(|agent| {
+                                policy::effective(&shell.config, agent, name) == bogo_config::Policy::Approve
+                            }) || shell.config.tools.get(name).is_some_and(|t| t.mode != bogo_config::Mode::Wait) {
+                                Some(("GroupPolicy", "Grouped calls require a protected tool in wait mode."))
+                            } else {
+                                None
+                            };
+                            if let Some((reason, message)) = rejected {
+                                shell.append(vec![LogEvent::CallOutcome {
+                                    call: Hex(call.clone()),
+                                    outcome: format!("rejected:{reason}"),
+                                    registry_seq: None,
+                                }]).await?;
+                                let _ = tx.send(Outcome::Error(message.into()));
+                                return Ok(());
+                            }
+                            Some(a::ApprovalGroup { id: group.id, title: group.title })
+                        } else {
+                            None
+                        };
                         shell.calls.insert(
                             call.clone(),
                             Call {
@@ -1267,6 +1300,7 @@ pub async fn serve(root: &Path) -> Result<()> {
                                 req: None,
                                 waiters: vec![tx],
                                 staged: false,
+                                group,
                             },
                         );
                         shell.step(i).await?;
