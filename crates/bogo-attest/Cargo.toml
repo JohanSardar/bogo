@@ -12,7 +12,7 @@ workspace = true
 ciborium = "0.2"
 x509-cert = { version = "0.2", features = ["pem"] }
 der = { version = "0.7", features = ["alloc", "derive", "oid"] }
-p256 = { version = "0.13", features = ["ecdsa"] }
+p256 = { version = "0.14", features = ["ecdsa"] }
 p384 = { version = "0.13", features = ["ecdsa"] }
 sha2 = "0.10"
 thiserror = "2"

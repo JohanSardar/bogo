@@ -14,7 +14,7 @@ unsafe_code = "warn"
 all = { level = "warn", priority = -1 }
 
 [dependencies]
-p256 = { version = "0.13", features = ["ecdsa"] }
+p256 = { version = "0.14", features = ["ecdsa"] }
 ed25519-dalek = { version = "2", optional = true }
 
 [features]
