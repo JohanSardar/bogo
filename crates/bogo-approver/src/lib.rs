@@ -52,6 +52,13 @@ pub struct Outbound {
     pub pause_epoch: u64,
     pub arm_delay_ms: u64,
     pub group_key: Vec<u8>,
+    pub approval_group: Option<ApprovalGroup>,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct ApprovalGroup {
+    pub id: String,
+    pub title: String,
 }
 
 /// Why a request ended, in the phone's vocabulary.
@@ -65,11 +72,12 @@ pub enum EndWhy {
     ApproverRevoked,
     AgentPaused,
     OtherBoot,
+    Superseded,
     Unknown,
 }
 
 impl EndWhy {
-    pub const ALL: [EndWhy; 9] = [
+    pub const ALL: [EndWhy; 10] = [
         EndWhy::CallEnded,
         EndWhy::SessionClosed,
         EndWhy::OwnerCancel,
@@ -78,6 +86,7 @@ impl EndWhy {
         EndWhy::ApproverRevoked,
         EndWhy::AgentPaused,
         EndWhy::OtherBoot,
+        EndWhy::Superseded,
         EndWhy::Unknown,
     ];
     pub fn wire(self) -> &'static str {
@@ -90,6 +99,7 @@ impl EndWhy {
             EndWhy::ApproverRevoked => "approverRevoked",
             EndWhy::AgentPaused => "agentPaused",
             EndWhy::OtherBoot => "otherBoot",
+            EndWhy::Superseded => "superseded",
             EndWhy::Unknown => "unknown",
         }
     }

@@ -9,7 +9,13 @@ Changes to the BOGO tab of the iPhone app are listed in the
 
 ## Unreleased
 
+## [0.2.0] - 2026-11-18
+
 ### Added
+
+- An orchestrator can submit [mutually exclusive tool calls](docs/daemon.md#grouped-approvals)
+  for comparison and approval in Apple Bridge 0.4.0. The daemon records the
+  selected option before dispatch and withdraws the other requests.
 
 - A five-minute start on the front page: install, get the app, `bogo setup`.
 - [Install and set up](docs/setup.md): what the install, `bogo setup` and

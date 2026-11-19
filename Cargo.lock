@@ -284,7 +284,7 @@ dependencies = [
 
 [[package]]
 name = "bogo"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bogo-daemon",
  "clap",
@@ -294,7 +294,7 @@ dependencies = [
 
 [[package]]
 name = "bogo-apns"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "jsonwebtoken",
  "reqwest 0.12.28",
@@ -308,10 +308,11 @@ dependencies = [
 
 [[package]]
 name = "bogo-approver"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "hex",
+ "serde",
  "serde_json",
  "thiserror",
  "tokio",
@@ -320,7 +321,7 @@ dependencies = [
 
 [[package]]
 name = "bogo-approver-iphone"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -345,7 +346,7 @@ dependencies = [
 
 [[package]]
 name = "bogo-approver-soft"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "bogo-approver",
@@ -356,7 +357,7 @@ dependencies = [
 
 [[package]]
 name = "bogo-attest"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ciborium",
  "der",
@@ -369,7 +370,7 @@ dependencies = [
 
 [[package]]
 name = "bogo-bypass"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rand 0.8.8",
  "reqwest 0.13.5",
@@ -380,7 +381,7 @@ dependencies = [
 
 [[package]]
 name = "bogo-config"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "toml",
@@ -388,7 +389,7 @@ dependencies = [
 
 [[package]]
 name = "bogo-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bogo-core-sys",
  "bogo-json",
@@ -398,14 +399,14 @@ dependencies = [
 
 [[package]]
 name = "bogo-core-sys"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "bogo-daemon"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -444,7 +445,7 @@ dependencies = [
 
 [[package]]
 name = "bogo-e2e"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hpke",
  "rand 0.9.5",
@@ -454,14 +455,14 @@ dependencies = [
 
 [[package]]
 name = "bogo-filter"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "bogo-front"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "bogo-core",
@@ -479,14 +480,14 @@ dependencies = [
 
 [[package]]
 name = "bogo-json"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "bogo-log"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bogo-core",
  "hex",
@@ -499,7 +500,7 @@ dependencies = [
 
 [[package]]
 name = "bogo-relay"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "axum-server",
@@ -517,7 +518,7 @@ dependencies = [
 
 [[package]]
 name = "bogo-relay-proto"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bogo-e2e",
  "ed25519-dalek",
@@ -534,7 +535,7 @@ dependencies = [
 
 [[package]]
 name = "bogo-shim"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bogo-json",
  "futures",
@@ -548,7 +549,7 @@ dependencies = [
 
 [[package]]
 name = "bogo-standin"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -575,7 +576,7 @@ dependencies = [
 
 [[package]]
 name = "bogo-state"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bogo-e2e",
  "bogo-log",
@@ -591,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "bogo-upstream"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "bogo-config",
@@ -612,7 +613,7 @@ dependencies = [
 
 [[package]]
 name = "bogo-verify"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
  "p256",

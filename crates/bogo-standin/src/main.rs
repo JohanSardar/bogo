@@ -756,6 +756,7 @@ impl App {
                         pause_epoch: epoch,
                         arm_delay_ms: self.arm_delay_ms,
                         group_key: vec![],
+                        approval_group: None,
                     },
                     &to,
                 );

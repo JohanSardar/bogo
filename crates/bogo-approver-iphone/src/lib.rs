@@ -387,6 +387,7 @@ impl ApproverRoute for IphoneRoute {
             bytes: B(r.bytes.clone()),
             pause_epoch: r.pause_epoch,
             arm_delay_ms: r.arm_delay_ms,
+            approval_group: r.approval_group.clone(),
         };
         // The mailbox is the queue; the push is only a wake-up, sent by this
         // Mac with its own `[apns]` key, or else by the relay.

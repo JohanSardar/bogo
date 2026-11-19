@@ -144,6 +144,10 @@ pub enum LogEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         why: Option<String>,
     },
+    GroupSelected {
+        group: String,
+        req: Hex,
+    },
     RequestSettled {
         req: Hex,
         approvers: Vec<Hex>,
@@ -201,6 +205,7 @@ impl LogEvent {
             LogEvent::RequestCreated { .. } => "request_created",
             LogEvent::Approval { .. } => "approval",
             LogEvent::Denial { .. } => "denial",
+            LogEvent::GroupSelected { .. } => "group_selected",
             LogEvent::RequestSettled { .. } => "request_settled",
             LogEvent::Authorized { .. } => "authorized",
             LogEvent::RequestEnded { .. } => "request_ended",
